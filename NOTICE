@@ -1,0 +1,57 @@
+HotDownloader
+Copyright 2026 lerd
+
+This product includes software developed by independent third parties.
+Each third-party component is governed by its own license, as indicated
+below. For full license texts, please refer to the respective component's
+official repository or documentation.
+
+Third-party components:
+
+Rust:
+  async-tungstenite         (MIT)
+  base64                    (Apache-2.0 OR MIT)
+  bytes                     (MIT)
+  dirs                      (Apache-2.0 OR MIT)
+  encoding_rs               ((Apache-2.0 OR MIT) AND BSD-3-Clause)
+  flate2                    (Apache-2.0 OR MIT)
+  futures-util              (Apache-2.0 OR MIT)
+  hotdownloader             (Apache-2.0)
+  lofty                     (Apache-2.0 OR MIT)
+  log                       (Apache-2.0 OR MIT)
+  once_cell                 (Apache-2.0 OR MIT)
+  open                      (MIT)
+  rand                      (Apache-2.0 OR MIT)
+  regex                     (Apache-2.0 OR MIT)
+  reqwest                   (Apache-2.0 OR MIT)
+  rumqttc                   (Apache-2.0)
+  rustls                    (Apache-2.0 OR ISC OR MIT)
+  serde                     (Apache-2.0 OR MIT)
+  serde_json                (Apache-2.0 OR MIT)
+  tauri                     (Apache-2.0 OR MIT)
+  tauri-build               (Apache-2.0 OR MIT)
+  tauri-plugin-android-fs   (Apache-2.0 OR MIT)
+  tauri-plugin-dialog       (Apache-2.0 OR MIT)
+  tauri-plugin-log          (Apache-2.0 OR MIT)
+  tauri-plugin-notification (Apache-2.0 OR MIT)
+  tauri-plugin-opener       (Apache-2.0 OR MIT)
+  tauri-plugin-os           (Apache-2.0 OR MIT)
+  tauri-plugin-store        (Apache-2.0 OR MIT)
+  tokio                     (MIT)
+  tokio-util                (MIT)
+  umc_qmc                   (Apache-2.0 OR MIT)
+  url                       (Apache-2.0 OR MIT)
+  urlencoding               (MIT)
+
+Frontend:
+  @tauri-apps/api           (Apache-2.0 OR MIT)
+  @tauri-apps/plugin-dialog (MIT OR Apache-2.0)
+  @tauri-apps/plugin-os     (MIT OR Apache-2.0)
+  @tauri-apps/plugin-store  (MIT OR Apache-2.0)
+  dompurify                 (MPL-2.0 OR Apache-2.0)
+  marked                    (MIT)
+  naive-ui                  (MIT)
+  pinia                     (MIT)
+  semver                    (ISC)
+  vue                       (MIT)
+  vue-router                (MIT)

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <script>
+    // 尽早为 Android 平台添加类名，避免安全区样式闪烁
+    if (navigator.userAgent.toLowerCase().includes('android')) {
+      document.documentElement.classList.add('android')
+    }
+  </script>
+  <title>hotdownloader</title>
+</head>
+
+<body>
+  <div id="app"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+
+</html>

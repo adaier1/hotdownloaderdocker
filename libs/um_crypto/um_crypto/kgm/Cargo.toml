@@ -1,0 +1,13 @@
+[package]
+name = "umc_kgm"
+version = "0.1.12"
+edition = "2021"
+
+[dependencies]
+byteorder = "1.5.0"
+thiserror = "2.0.7"
+umc_utils = { path = "../utils" }
+umc_qmc = { path = "../qmc" }
+aes = "0.8.4"
+cbc = "0.1.2"
+block-padding = "0.3.3"

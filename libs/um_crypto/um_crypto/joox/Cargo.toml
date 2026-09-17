@@ -1,0 +1,13 @@
+[package]
+name = "umc_joox"
+version = "0.1.12"
+edition = "2021"
+
+[dependencies]
+aes = "0.8.4"
+byteorder = "1.5.0"
+cipher = "0.4.4"
+hmac = "0.12.1"
+pbkdf2 = "0.12.2"
+sha1 = "0.10.5"
+thiserror = "2.0.7"

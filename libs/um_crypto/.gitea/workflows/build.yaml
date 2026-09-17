@@ -1,0 +1,44 @@
+name: Build and Publish
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      COREPACK_ENABLE_AUTO_PIN: 0
+      BUILD_SKIP_WASM_PACK: 1
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+      - name: Test
+        run: cargo test --verbose --all
+      - name: Setup wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Build (rust to wasm)
+        run: |
+          cd um_wasm
+          wasm-pack build --release --target web --out-dir ../um_wasm_loader/pkg
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4.0.0
+        with:
+          standalone: true
+          package_json_file: um_wasm_loader/package.json
+          run_install: |
+            - cwd: um_wasm_loader
+              args: [--frozen-lockfile, --strict-peer-dependencies]
+      - name: Build (wasm)
+        working-directory: um_wasm_loader
+        run: pnpm build
+      - name: Publish
+        working-directory: um_wasm_loader
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: ./ci_publish.sh

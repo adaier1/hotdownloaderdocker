@@ -1,0 +1,7 @@
+[package]
+name = "umc_xiami"
+version = "0.1.12"
+edition = "2021"
+
+[dependencies]
+thiserror = "2.0.7"

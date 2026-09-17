@@ -1,0 +1,46 @@
+# ============================================================
+# HotDownloader — Web 前端 + Rust API 服务（Docker Compose）
+#
+# 架构：
+#   web    (nginx: 静态前端 + /api 反向代理)  -> 宿主机 :8080
+#   server (Rust API 服务)                    <- web 代理 /api
+#
+# 数据持久化：
+#   downloader-data  服务端数据（设置/历史/任务）
+#   downloader-music 下载的音乐文件
+#
+# 启动：docker compose up -d --build
+# 访问：http://localhost:8080
+# ============================================================
+
+services:
+  # Rust API 服务（下载引擎、搜索/歌单/登录接口、SSE 事件推送）
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    restart: unless-stopped
+    environment:
+      DATA_DIR: /data
+      DOWNLOAD_DIR: /downloads
+      BIND_ADDR: 0.0.0.0:8080
+      RUST_LOG: info
+    volumes:
+      - downloader-data:/data
+      - downloader-music:/downloads
+
+  # Web 前端（nginx 静态托管 + /api 代理到 server）
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - server
+
+volumes:
+  downloader-data:
+  downloader-music:
+#（注：内容由AI生成）

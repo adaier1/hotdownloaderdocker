@@ -1,0 +1,39 @@
+[package]
+name = "um_wasm"
+version = "0.1.12"
+authors = ["鲁树人 <lu.shuren@um-react.app>"]
+edition = "2018"
+description = "um_crypo in Rust & WebAssembly"
+homepage = "https://git.um-react.app/um/lib_um_crypto_rust"
+repository = "https://git.um-react.app/um/lib_um_crypto_rust.git"
+license = "Apache-2.0 + MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["console_error_panic_hook"]
+
+[dependencies]
+wasm-bindgen = "0.2.84"
+anyhow = "1.0.86"
+
+# The `console_error_panic_hook` crate provides better debugging of panics by
+# logging them with `console.error`. This is great for development, but requires
+# all the `std::fmt` and `std::panicking` infrastructure, so isn't great for
+# code size when deploying.
+console_error_panic_hook = { version = "0.1.7", optional = true }
+umc_joox = { path = "../um_crypto/joox" }
+umc_kgm = { path = "../um_crypto/kgm" }
+umc_kuwo = { path = "../um_crypto/kuwo" }
+umc_mg3d = { path = "../um_crypto/mg3d" }
+umc_ncm = { path = "../um_crypto/ncm" }
+umc_qmc = { path = "../um_crypto/qmc" }
+umc_qrc = { path = "../um_crypto/qrc" }
+umc_qtfm = { path = "../um_crypto/qtfm" }
+umc_xiami = { path = "../um_crypto/xiami" }
+umc_xmly = { path = "../um_crypto/xmly" }
+um_audio = { path = "../um_audio" }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.34"

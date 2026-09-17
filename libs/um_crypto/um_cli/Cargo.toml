@@ -1,0 +1,18 @@
+[package]
+name = "um_cli"
+version = "0.1.12"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.86"
+clap = { version = "4.5.17", features = ["derive"] }
+hex = "0.4.3"
+umc_joox = { path = "../um_crypto/joox" }
+umc_kgm = { path = "../um_crypto/kgm" }
+umc_mg3d = { path = "../um_crypto/mg3d" }
+umc_ncm = { path = "../um_crypto/ncm" }
+umc_qmc = { path = "../um_crypto/qmc" }
+umc_qtfm = { path = "../um_crypto/qtfm" }
+umc_xiami = { path = "../um_crypto/xiami" }
+umc_xmly = { path = "../um_crypto/xmly" }
+umc_utils = { path = "../um_crypto/utils" }

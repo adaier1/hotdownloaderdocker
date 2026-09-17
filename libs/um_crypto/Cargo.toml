@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = ["um_audio", "um_crypto/*", "um_wasm", "um_cli"]
+
+[profile.release.package.um_wasm]
+# Tell `rustc` to optimize for small code size.
+opt-level = "s"

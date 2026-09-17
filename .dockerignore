@@ -1,0 +1,8 @@
+# 构建上下文排除项
+.git
+.gitignore
+node_modules
+dist
+**/target
+**/*.tmp
+**/.*.tmpdir

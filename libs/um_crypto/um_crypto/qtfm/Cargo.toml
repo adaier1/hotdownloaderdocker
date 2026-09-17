@@ -1,0 +1,11 @@
+[package]
+name = "umc_qtfm"
+version = "0.1.12"
+edition = "2021"
+
+[dependencies]
+aes = "0.8.4"
+byteorder = "1.5.0"
+ctr = "0.9.2"
+thiserror = "2.0.7"
+umc_utils = { path = "../utils" }

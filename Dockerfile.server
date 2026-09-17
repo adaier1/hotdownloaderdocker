@@ -1,0 +1,38 @@
+# ============================================================
+# HotDownloader Rust API 服务镜像
+# 多阶段构建：rust 编译 → 精简运行镜像
+# ============================================================
+
+# ---- 构建阶段 ----
+FROM rust:1-bookworm AS builder
+
+WORKDIR /build
+
+# 拷贝 um_crypto 依赖（Cargo 路径依赖，构建必需）
+COPY libs/ ./libs/
+# 拷贝服务端源码、清单与锁文件
+COPY server/ ./server/
+
+WORKDIR /build/server
+RUN cargo build --release --locked
+
+# ---- 运行阶段 ----
+FROM debian:bookworm-slim
+
+# 运行时依赖：HTTPS 根证书（访问 QQ 音乐等 HTTPS 接口需要）
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /build/server/target/release/hotdownloader-server /usr/local/bin/hotdownloader-server
+
+# 数据与下载目录（通过卷持久化）
+ENV DATA_DIR=/data \
+    DOWNLOAD_DIR=/downloads \
+    BIND_ADDR=0.0.0.0:8080 \
+    RUST_LOG=info
+
+VOLUME ["/data", "/downloads"]
+EXPOSE 8080
+
+ENTRYPOINT ["hotdownloader-server"]
