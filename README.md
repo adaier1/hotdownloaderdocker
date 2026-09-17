@@ -60,6 +60,60 @@
 
 前置要求：Docker ≥ 24、Docker Compose v2。
 
+### Compose
+"# ============================================================
+# 用法：
+#   1) 把本文件放到 NAS 的一个目录，例如：
+#        群晖 DSM:   /volume1/docker/hotdownloader/docker-compose.nas.yml
+#        威联通 QTS: /share/Container/hotdownloader/docker-compose.nas.yml
+#   2) 按需修改下面的下载目录 / 配置目录 / 端口（或同目录建 .env 覆盖）
+#   3) docker compose -f docker-compose.nas.yml pull
+#      docker compose -f docker-compose.nas.yml up -d
+#   4) 浏览器访问 http://<NAS_IP>:8080
+#
+# 可覆盖的环境变量（可写在同目录 .env 文件里）：
+#   IMAGE_TAG     镜像标签，默认 latest（也可 main / sha-xxxxxxx / v1.2.3）
+#   WEB_PORT      宿主机端口，默认 8080
+#   DOWNLOAD_PATH 音乐保存到 NAS 的哪个目录，默认 ./downloads
+#   DATA_PATH     配置/任务/登录态保存目录，默认 ./data
+#   TZ            时区，默认 Asia/Shanghai
+#   RUST_LOG      日志级别，默认 info
+#
+# 注意：
+#   - GHCR 上的包若为私有，需先执行：docker login ghcr.io -u <你的GitHub用户名>
+#     公开包可直接拉取。
+#   - 镜像目前仅构建 linux/amd64。x86_64 NAS 可直接用；ARM NAS 需先让 CI
+#     支持 arm64（可告诉我，我给工作流加多架构构建）。
+# ============================================================
+
+services:
+  # Rust API 服务（下载引擎、搜索/歌单/登录接口、SSE 事件推送）
+  server:
+    image: ghcr.io/adaier1/hotdownloaderdocker-server:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      DATA_DIR: /data
+      DOWNLOAD_DIR: /downloads
+      BIND_ADDR: 0.0.0.0:8080
+      RUST_LOG: ${RUST_LOG:-info}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      # 配置/任务/登录态（务必持久化，否则重启丢失）
+      - ${DATA_PATH:-./data}:/data
+      # 下载的音乐文件（映射到 NAS 上可直接访问的目录）
+      - ${DOWNLOAD_PATH:-./downloads}:/downloads
+
+  # Web 前端（nginx 静态托管 + /api 反向代理到 server）
+  web:
+    image: ghcr.io/adaier1/hotdownloaderdocker-web:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    depends_on:
+      - server
+"
 ### 1. 获取源码
 
 ```bash
