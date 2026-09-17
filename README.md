@@ -1,6 +1,7 @@
 # 🎵 HotDownloader
 
 > 基于 **Web 前端（Vue 3）+ Rust API 服务（axum）** 架构的音乐下载器，支持 **Docker 一键部署**。
+> 原项目作者链接https://github.com/lerdb/HotDownloader#-hotdownloader
 
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)
