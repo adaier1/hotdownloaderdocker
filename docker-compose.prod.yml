@@ -1,0 +1,47 @@
+# ============================================================
+# HotDownloader — 使用已发布镜像安装（无需本地构建）
+#
+# 镜像来源：GitHub Container Registry (GHCR)
+#   ghcr.io/adaier1/hotdownloaderdocker-server
+#   ghcr.io/adaier1/hotdownloaderdocker-web
+#
+# 启动：docker compose -f docker-compose.prod.yml up -d
+# 访问：http://localhost:8080
+#
+# 若 GHCR 上的包为私有，请先登录：
+#   docker login ghcr.io -u <你的GitHub用户名>
+# 若为公开包，可直接拉取，无需登录。
+#
+# 可用环境变量覆盖：
+#   IMAGE_TAG  镜像标签（默认 latest，也可用 main / sha-xxxxxxx / v1.2.3）
+#   WEB_PORT   宿主机端口（默认 8080）
+# ============================================================
+
+services:
+  # Rust API 服务（下载引擎、搜索/歌单/登录接口、SSE 事件推送）
+  server:
+    image: ghcr.io/adaier1/hotdownloaderdocker-server:${IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      DATA_DIR: /data
+      DOWNLOAD_DIR: /downloads
+      BIND_ADDR: 0.0.0.0:8080
+      RUST_LOG: info
+    volumes:
+      - downloader-data:/data
+      - downloader-music:/downloads
+
+  # Web 前端（nginx 静态托管 + /api 反向代理到 server）
+  web:
+    image: ghcr.io/adaier1/hotdownloaderdocker-web:${IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      - server
+
+volumes:
+  downloader-data:
+  downloader-music:
