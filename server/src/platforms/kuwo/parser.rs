@@ -7,12 +7,88 @@
 //! - 酷我的 `MUSICRID` 形如 `MUSIC_6802907`，需去掉 `MUSIC_` 前缀转为数字 ID。
 //! - 酷我没有字符串 mid，前端 `mid` 字段填数字 ID 的字符串形式。
 //! - 品质从 `N_MINFO`（优先）或 `MINFO` 字段解析，按 `bitrate` → 品质标签映射。
-//! - 封面 URL 需要通过独立接口（见 `cover.rs`）获取，本模块不做处理。
+//! - 封面取自完整图片地址或 `web_*pic_short` 路径，短路径统一使用 300×300 分辨率。
 //! - 酷我接口的 `ARTIST` 字段本身使用 `&` 作为歌手分隔符；解析后按用户设置的
 //!   `artistSeparator` 重新拼接，保持与其他平台一致的展示形式。
 
 use regex::Regex;
 use serde_json::{json, Value};
+
+/// 将数字或数字字符串转为正整数 ID 字符串；无效值返回空字符串。
+fn entity_id(value: &Value) -> String {
+    value
+        .as_u64()
+        .or_else(|| value.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
+        .filter(|id| *id > 0)
+        .map(|id| id.to_string())
+        .unwrap_or_default()
+}
+
+/// 将酷我图片短路径转换为 300×300 图片地址。
+///
+/// # 参数
+/// - `value`: 形如 `120/40/64/2063938955.jpg` 的图片短路径。
+/// - `directory`: 图片目录，歌手使用 `starheads`，专辑使用 `albumcover`。
+///
+/// # 返回
+/// 完整的 HTTPS 图片地址；路径缺失或格式无效时返回空字符串。
+fn picture_url(value: &Value, directory: &str) -> String {
+    value
+        .as_str()
+        .and_then(|path| path.split_once('/'))
+        .filter(|(size, path)| size.parse::<u32>().is_ok() && !path.is_empty())
+        .map(|(_, path)| format!("https://img4.kuwo.cn/star/{}/300/{}", directory, path))
+        .unwrap_or_default()
+}
+
+/// 按原始位置配对歌手名称和 ID。
+///
+/// # 参数
+/// - `name`: 以 `&` 分隔的歌手名称。
+/// - `item`: 包含 `allartistid` 或 `ALLARTISTID` 的原始条目。
+///   单歌手条目缺少有效关联 ID 时，使用 `ARTISTID` 或 `artistid`。
+///
+/// # 返回
+/// 按输入顺序排列的 `{ id, mid, name, coverUrl }` 列表，配对后过滤空白名称。
+/// `id` 为数字 ID 字符串，缺失或无效时为空；`mid` 为空字符串。
+/// `web_artistpic_short` 对应 `ARTISTID` 指定的歌手；单歌手条目可直接使用该图片。
+pub(super) fn parse_artists(name: &str, item: &Value) -> Vec<Value> {
+    let names: Vec<_> = name.split('&').collect();
+    let all_ids = item["allartistid"]
+        .as_str()
+        .or_else(|| item["ALLARTISTID"].as_str())
+        .unwrap_or("");
+    let ids: Vec<_> = all_ids.split('&').collect();
+    let single_id = entity_id(item.get("ARTISTID").unwrap_or(&item["artistid"]));
+    let artist_cover = picture_url(&item["web_artistpic_short"], "starheads");
+    names
+        .iter()
+        .enumerate()
+        .filter_map(|(index, name)| {
+            let name = name.trim();
+            if name.is_empty() {
+                return None;
+            }
+            let mut id = ids
+                .get(index)
+                .and_then(|id| id.trim().parse::<u64>().ok())
+                .filter(|id| *id > 0)
+                .map(|id| id.to_string())
+                .unwrap_or_default();
+            if id.is_empty() && names.len() == 1 {
+                id = single_id.clone();
+            }
+            let cover_url = if !id.is_empty()
+                && (id == single_id || (single_id.is_empty() && names.len() == 1))
+            {
+                artist_cover.as_str()
+            } else {
+                ""
+            };
+            Some(json!({ "id": id, "mid": "", "name": name, "coverUrl": cover_url }))
+        })
+        .collect()
+}
 
 /// 通用歌曲解析函数。
 ///
@@ -30,8 +106,11 @@ use serde_json::{json, Value};
 ///   - `mid`: 歌曲唯一标识（酷我用数字 ID 字符串代替）
 ///   - `title`: 歌曲标题
 ///   - `artist`: 歌手名（多个歌手以 `artist_separator` 连接）
+///   - `artists`: 歌手关联信息列表，每项包含 `id`、`mid`、`name` 和 `coverUrl`
 ///   - `album`: 专辑名
-///   - `coverUrl`: 封面图片 URL（搜索阶段为空，由外部独立接口填充）
+///   - `albumId`: 专辑数字 ID 的字符串形式
+///   - `albumMid`: 空字符串
+///   - `coverUrl`: 歌曲封面 URL，优先专辑图片，其次歌手图片
 ///   - `mediaMid`: 媒体文件标识（酷我用歌曲数字 ID）
 ///   - `qualities`: 可用品质列表，每项含 `quality`、`format`、`bitrate`、`size`、`filename`
 /// - `None`：当歌曲缺少 `MUSICRID` 时返回 `None`，表示该歌曲无法解析或不可下载。
@@ -97,23 +176,17 @@ pub(crate) fn parse_song(song: &Value, artist_separator: &str) -> Option<Value> 
         })
         .unwrap_or_default();
 
-    // 拆分时忽略空白与空字符串；找不到分隔符时退化为单元素数组。
-    let artists: Vec<String> = if raw_artist.contains('&') {
-        raw_artist
-            .split('&')
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
-            .collect()
-    } else if raw_artist.is_empty() {
-        Vec::new()
-    } else {
-        vec![raw_artist]
-    };
-    let artist = artists.join(artist_separator);
+    let artists = parse_artists(&raw_artist, song);
+    let artist = artists
+        .iter()
+        .filter_map(|item| item["name"].as_str())
+        .collect::<Vec<_>>()
+        .join(artist_separator);
 
     // 专辑
+    // 专辑ID是song["ALBUMID"]，以字符串格式存储的专辑数字ID
     let album = song["ALBUM"].as_str().unwrap_or("").to_string();
+    let ablum_id = entity_id(song.get("ALBUMID").unwrap_or(&song["albumid"]));
 
     // 时长（秒），用于前端展示。兼容字符串和数字两种类型：
     // 歌单接口返回字符串，搜索接口返回数字。
@@ -123,10 +196,18 @@ pub(crate) fn parse_song(song: &Value, artist_separator: &str) -> Option<Value> 
         _ => 0,
     };
 
-    // 封面 URL：优先使用歌曲对象中已有的 `albumpic` 字段（歌单接口返回），
-    // 如果不存在则为空字符串，由前端按需调用 fetch_cover 获取。
-    // 这样避免在已有封面链接时重复请求封面接口，减少耗时。
-    let cover_url = song["albumpic"].as_str().unwrap_or("").to_string();
+    let cover_url = song["albumpic"]
+        .as_str()
+        .filter(|url| !url.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| {
+            let album_cover = picture_url(&song["web_albumpic_short"], "albumcover");
+            if album_cover.is_empty() {
+                picture_url(&song["web_artistpic_short"], "starheads")
+            } else {
+                album_cover
+            }
+        });
 
     // 构建品质列表（优先解析 N_MINFO，回退 MINFO）
     let info_str = song["N_MINFO"]
@@ -141,7 +222,10 @@ pub(crate) fn parse_song(song: &Value, artist_separator: &str) -> Option<Value> 
         "mid": mid,
         "title": title,
         "artist": artist,
+        "artists": artists,
         "album": album,
+        "albumId": ablum_id,
+        "albumMid": "",
         "duration": duration,
         "coverUrl": cover_url,
         "mediaMid": mid,    // 酷我用数字 ID 作为 mediaMid
@@ -252,4 +336,140 @@ fn parse_size(size_str: &str) -> u64 {
         _ => 1.0,
     };
     (num * multiplier) as u64
+}
+
+/// 歌手、专辑详情接口使用小写字段，适配后交给统一歌曲解析器。
+pub(crate) fn parse_detail_song(item: &Value, separator: &str) -> Option<Value> {
+    let mut song = item.clone();
+    for (target, source) in [
+        ("SONGNAME", "name"),
+        ("ARTIST", "artist"),
+        ("ALBUM", "album"),
+        ("DURATION", "duration"),
+        ("MUSICRID", "musicrid"),
+    ] {
+        if let Some(value) = item.get(source) {
+            song[target] = value.clone();
+        }
+    }
+    parse_song(&song, separator)
+}
+
+#[cfg(test)]
+mod artist_tests {
+    use super::*;
+
+    #[test]
+    fn search_song_uses_artist_and_album_short_paths() {
+        let mut raw = json!({
+            "MUSICRID": "MUSIC_6802907",
+            "ARTIST": "林俊杰", "ARTISTID": "1062", "allartistid": "1062",
+            "web_albumpic_short": "120/55/84/1457166092.jpg",
+            "web_artistpic_short": "120/40/64/2063938955.jpg"
+        });
+        let song = parse_song(&raw, "、").unwrap();
+        assert_eq!(
+            song["coverUrl"],
+            "https://img4.kuwo.cn/star/albumcover/300/55/84/1457166092.jpg"
+        );
+        assert_eq!(
+            song["artists"][0]["coverUrl"],
+            "https://img4.kuwo.cn/star/starheads/300/40/64/2063938955.jpg"
+        );
+
+        raw["albumpic"] = json!("https://example.com/album.jpg");
+        assert_eq!(parse_song(&raw, "、").unwrap()["coverUrl"], raw["albumpic"]);
+
+        raw["albumpic"] = json!("");
+        raw["web_albumpic_short"] = json!("");
+        assert_eq!(
+            parse_song(&raw, "、").unwrap()["coverUrl"],
+            song["artists"][0]["coverUrl"]
+        );
+
+        raw["web_artistpic_short"] = json!("");
+        assert_eq!(parse_song(&raw, "、").unwrap()["coverUrl"], "");
+    }
+
+    #[test]
+    fn associates_artist_picture_with_its_artist_id() {
+        let artists = parse_artists(
+            "甲&乙",
+            &json!({
+                "allartistid": "336&123", "ARTISTID": "123",
+                "web_artistpic_short": "120/40/64/2063938955.jpg"
+            }),
+        );
+        assert_eq!(artists[0]["coverUrl"], "");
+        assert_eq!(
+            artists[1]["coverUrl"],
+            "https://img4.kuwo.cn/star/starheads/300/40/64/2063938955.jpg"
+        );
+        assert_eq!(picture_url(&json!(""), "starheads"), "");
+        assert_eq!(picture_url(&json!("invalid"), "starheads"), "");
+    }
+
+    #[test]
+    fn keeps_artist_id_positions_when_names_or_ids_are_empty() {
+        let artists = parse_artists("甲&&乙&丙", &json!({"allartistid": "123&999&&456"}));
+        assert_eq!(
+            artists,
+            vec![
+                json!({"id": "123", "mid": "", "name": "甲", "coverUrl": ""}),
+                json!({"id": "", "mid": "", "name": "乙", "coverUrl": ""}),
+                json!({"id": "456", "mid": "", "name": "丙", "coverUrl": ""})
+            ]
+        );
+        let missing = parse_artists("甲&乙", &json!({"artistid": "123"}));
+        assert!(missing.iter().all(|artist| artist["id"] == ""));
+        assert_eq!(
+            parse_artists("甲", &json!({"artistid": 123}))[0]["id"],
+            "123"
+        );
+    }
+
+    #[test]
+    fn search_song_preserves_related_ids_and_custom_separator() {
+        let song = parse_song(
+            &json!({
+                "MUSICRID": "MUSIC_228908", "ARTIST": "甲&乙",
+                "allartistid": "336&123", "ALBUMID": "1293", "ALBUM": "叶惠美"
+            }),
+            "、",
+        )
+        .unwrap();
+        assert_eq!(song["artist"], "甲、乙");
+        assert_eq!(song["artists"][1]["id"], "123");
+        assert_eq!(song["albumId"], "1293");
+        assert_eq!(song["albumMid"], "");
+    }
+    #[test]
+    fn parses_artist_song_without_id() {
+        let song = parse_detail_song(
+            &json!({
+                "musicrid": "228908",
+                "name": "晴天",
+                "artist": "周杰伦",
+                "album": "叶惠美",
+                "albumid": 1293,
+                "artistid": "336",
+                "duration": "269",
+                "web_albumpic_short": "120/test.jpg",
+                "MINFO": "level:p,bitrate:320,format:mp3,size:10.29Mb"
+            }),
+            " / ",
+        )
+        .unwrap();
+        assert_eq!(song["id"], 228908);
+        assert_eq!(song["title"], "晴天");
+        assert_eq!(song["album"], "叶惠美");
+        assert_eq!(song["albumId"], "1293");
+        assert_eq!(song["artists"][0]["id"], "336");
+        assert_eq!(song["duration"], 269);
+        assert_eq!(
+            song["coverUrl"],
+            "https://img4.kuwo.cn/star/albumcover/300/test.jpg"
+        );
+        assert!(!song["qualities"].as_array().unwrap().is_empty());
+    }
 }

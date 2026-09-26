@@ -100,6 +100,17 @@ export interface QualityItem {
     size: number      // 文件字节大小
 }
 
+/** 歌曲或专辑中的歌手关联信息。 */
+export interface ArtistReference {
+    /** 数字 ID 的字符串形式，缺失或无效时为空字符串。 */
+    id: string
+    /** QQ 音乐 MID。 */
+    mid?: string
+    name: string
+    /** 歌手头像的完整 URL。 */
+    coverUrl?: string
+}
+
 // 歌曲基本信息
 export interface SongInfo {
     platform: string    // 平台标识
@@ -108,6 +119,12 @@ export interface SongInfo {
     title: string
     artist: string
     album: string
+    /** 按展示顺序排列的歌手关联信息。 */
+    artists?: ArtistReference[]
+    /** 专辑数字 ID 的字符串形式。 */
+    albumId?: string
+    /** QQ 音乐专辑 MID。 */
+    albumMid?: string
     coverUrl: string
     mediaMid: string
     qualities: QualityItem[]
@@ -289,4 +306,45 @@ export interface DownloadFileCompletePayload {
 export interface DownloadMetadataErrorPayload {
     task_id: string
     error_msg: string
+}
+
+// 专辑搜索与详情共用的信息
+export interface AlbumInfo {
+    id: string
+    name: string
+    artist: string
+    artists?: ArtistReference[]
+    coverUrl: string
+    publishDate: string
+    songCount: number
+}
+export interface AlbumSearchResponse {
+    albums: AlbumInfo[]
+    has_more: boolean
+}
+export interface AlbumSongsResponse {
+    album: AlbumInfo
+    songs: SongInfo[]
+}
+
+export interface ArtistInfo {
+    id: string
+    name: string
+    coverUrl: string
+    alias: string
+    region: string
+    songCount: number
+    albumCount: number
+}
+export interface ArtistSearchResponse {
+    artists: ArtistInfo[]
+    has_more: boolean
+}
+export interface ArtistSongsResponse extends SearchResponse {
+    total: number
+    name?: string
+}
+export interface ArtistAlbumsResponse extends AlbumSearchResponse {
+    total: number
+    name?: string
 }

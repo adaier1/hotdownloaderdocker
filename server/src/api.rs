@@ -73,6 +73,22 @@ struct SearchSongsArgs {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct AlbumIdArgs {
+    platform: String,
+    id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ArtistSongsArgs {
+    platform: String,
+    id: String,
+    page: u32,
+    limit: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct FetchDownloadLinkArgs {
     platform: String,
     song_mid: String,
@@ -224,6 +240,57 @@ async fn dispatch(state: &AppState, cmd: &str, args: &Value) -> Result<Value, St
                     state.ctx.clone(),
                     a.platform,
                     a.keyword,
+                    a.page,
+                    a.limit,
+                )
+                .await,
+            )
+        }
+        "search_albums" => {
+            let a: SearchSongsArgs = parse(args)?;
+            to_value(
+                commands::api::search::search_albums(
+                    state.ctx.clone(),
+                    a.platform,
+                    a.keyword,
+                    a.page,
+                    a.limit,
+                )
+                .await,
+            )
+        }
+        "search_artists" => {
+            let a: SearchSongsArgs = parse(args)?;
+            to_value(
+                commands::api::search::search_artists(a.platform, a.keyword, a.page, a.limit).await,
+            )
+        }
+        "fetch_album_songs" => {
+            let a: AlbumIdArgs = parse(args)?;
+            to_value(
+                commands::api::search::fetch_album_songs(state.ctx.clone(), a.platform, a.id).await,
+            )
+        }
+        "fetch_artist_songs" => {
+            let a: ArtistSongsArgs = parse(args)?;
+            to_value(
+                commands::api::search::fetch_artist_songs(
+                    state.ctx.clone(),
+                    a.platform,
+                    a.id,
+                    a.page,
+                    a.limit,
+                )
+                .await,
+            )
+        }
+        "fetch_artist_albums" => {
+            let a: ArtistSongsArgs = parse(args)?;
+            to_value(
+                commands::api::search::fetch_artist_albums(
+                    state.ctx.clone(),
+                    a.platform,
+                    a.id,
                     a.page,
                     a.limit,
                 )

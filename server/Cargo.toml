@@ -1,6 +1,6 @@
 [package]
 name = "hotdownloader-server"
-version = "1.3.0"
+version = "1.3.3"
 description = "HotDownloader Rust API 服务（Web 架构后端）"
 authors = ["lerdb"]
 license = "Apache-2.0"
