@@ -67,42 +67,34 @@
 ### Compose
 
 ```bash
-# 可覆盖的环境变量：
-# IMAGE_TAG     镜像标签，默认 latest（也可 main / sha-xxxxxxx / v1.2.3）
-# WEB_PORT      宿主机端口，默认 8080
-# DOWNLOAD_PATH 音乐保存目录
-# DATA_PATH     data保存目录
-# TZ            时区，默认 Asia/Shanghai
-# RUST_LOG      日志级别，默认 info
-
 services:
-
 # Rust API 服务（下载引擎、搜索/歌单/登录接口、SSE 事件推送）
-server:
-  image: ghcr.io/adaier1/hotdownloaderdocker-server:${IMAGE_TAG:-latest}
-  restart: unless-stopped
-  environment:
-    DATA_DIR: /data
-    DOWNLOAD_DIR: /downloads
-    BIND_ADDR: 0.0.0.0:8080
-    RUST_LOG: ${RUST_LOG:-info}
-    TZ: ${TZ:-Asia/Shanghai}
-  volumes:
-    # 配置/任务/登录态（务必持久化，否则重启丢失）
-    - ${DATA_PATH:-./data}:/data
-    # 下载的音乐文件目录
-    - ${DOWNLOAD_PATH:-./downloads}:/downloads
-
-# Web 前端（nginx 静态托管 + /api 反向代理到 server）
-web:
-  image: ghcr.io/adaier1/hotdownloaderdocker-web:${IMAGE_TAG:-latest}
-  restart: unless-stopped
-  ports:
-    - "${WEB_PORT:-8080}:80"
-  environment:
-    TZ: ${TZ:-Asia/Shanghai}
-  depends_on:
-    - server
+  server:
+    container_name: hotdownloader-server
+    image: ghcr.io/adaier1/hotdownloaderdocker-server:latest
+    restart: unless-stopped
+    environment:
+      DATA_DIR: /data
+      DOWNLOAD_DIR: /downloads
+      BIND_ADDR: 0.0.0.0:8080
+      RUST_LOG: info
+      TZ: Asia/Shanghai
+    volumes:
+      # 配置、任务、登录态
+      - ./data:/data
+      # 下载的音乐文件
+      - ./downloads:/downloads
+# Web 前端（Nginx 静态托管 + /api 反向代理到 server）
+  web:
+    container_name: hotdownloader-web
+    image: ghcr.io/adaier1/hotdownloaderdocker-web:latest
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    environment:
+      TZ: Asia/Shanghai
+    depends_on:
+      - server
 
 ```
 
