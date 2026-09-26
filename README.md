@@ -18,6 +18,8 @@
                                  │ · 文件下载接口              │
                                  └──────────────────────────┘
 ```
+- **界面预览**
+- 
 
 - **Web 前端**：Vue 3 + TypeScript + Vite + Pinia + Naive UI，由 nginx 托管静态资源并把 `/api` 反向代理到 Rust 服务（同源，无 CORS 问题）。
 - **Rust API 服务**：axum + Tokio，`POST /api/invoke` 统一 RPC 分发（命令与参数约定与 Tauri invoke 一致），`GET /api/events` 通过 SSE 实时推送下载进度/完成/错误事件，`GET /api/files` 提供已下载文件的浏览器下载。
