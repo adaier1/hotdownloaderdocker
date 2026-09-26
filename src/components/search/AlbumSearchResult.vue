@@ -63,15 +63,17 @@ defineEmits<{
     align-items: center;
     min-width: 0;
     padding: 12px;
-    background-color: var(--bg-sidebar);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
+    background-color: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
     cursor: pointer;
-    transition: border-color 0.2s;
+    transition: all var(--transition);
 }
 
 .album-card:hover {
-    border-color: var(--color-text-secondary);
+    box-shadow: var(--shadow-md);
+    border-color: var(--accent);
 }
 
 .album-card-cover {

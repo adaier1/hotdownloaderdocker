@@ -76,7 +76,7 @@ function goBack() {
 
 <style scoped>
 .about-view {
-    max-width: 800px;
+    max-width: 680px;
     min-width: 0;
     margin: 0 auto;
     padding: 0;
@@ -94,10 +94,10 @@ function goBack() {
 }
 
 .about-card {
-    /* 使用全局定义的侧边栏背景色，自动适配深色模式 */
-    background-color: var(--bg-sidebar);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
+    background-color: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
     padding: 24px;
     text-align: center;
 }
@@ -122,9 +122,10 @@ function goBack() {
 }
 
 .about-section {
-    background-color: var(--bg-sidebar);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
+    background-color: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
     padding: 16px 20px;
 }
 

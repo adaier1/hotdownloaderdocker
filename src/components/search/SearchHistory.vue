@@ -1,23 +1,19 @@
 <template>
     <div class="search-history" v-if="history.length > 0">
         <div class="history-header">
-            <span>搜索历史</span>
-            <n-button text type="primary" size="small" @click="$emit('clear')">
-                清除历史
-            </n-button>
+            <span class="history-title">搜索历史</span>
+            <button type="button" class="history-clear" @click="$emit('clear')">清除历史</button>
         </div>
         <div class="history-tags">
-            <n-tag v-for="item in history" :key="item" closable @close="$emit('remove', item)"
-                @click="$emit('select', item)" class="history-tag">
+            <button v-for="item in history" :key="item" type="button" class="tag" @click="$emit('select', item)">
                 {{ item }}
-            </n-tag>
+                <span class="tag-close" @click.stop="$emit('remove', item)">×</span>
+            </button>
         </div>
     </div>
 </template>
 
 <script setup lang="ts">
-import { NTag, NButton } from 'naive-ui'
-
 defineProps<{
     history: string[]
 }>()
@@ -31,14 +27,34 @@ defineEmits<{
 
 <style scoped>
 .search-history {
-    margin-bottom: 16px;
+    margin-bottom: 28px;
 }
 
 .history-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 8px;
+    margin-bottom: 12px;
+}
+
+.history-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.history-clear {
+    font-size: 12px;
+    color: var(--accent);
+    cursor: pointer;
+    background: none;
+    border: none;
+    font-family: inherit;
+    transition: opacity var(--transition);
+}
+
+.history-clear:hover {
+    opacity: 0.7;
 }
 
 .history-tags {
@@ -47,22 +63,45 @@ defineEmits<{
     gap: 8px;
 }
 
-.history-tag {
-    cursor: pointer;
+.tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     max-width: 100%;
-}
-
-/* 长关键词换行显示，保留标签末尾的删除入口 */
-.history-tag :deep(.n-tag__content) {
-    min-width: 0;
-    white-space: normal;
+    padding: 6px 14px;
+    background: var(--surface);
+    border-radius: 16px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition);
+    border: none;
+    font-family: inherit;
+    box-shadow: var(--shadow-sm);
     overflow-wrap: anywhere;
+    text-align: left;
 }
 
-.history-tag.n-tag {
-    height: auto;
-    min-height: 32px;
-    padding-top: 4px;
-    padding-bottom: 4px;
+.tag:hover {
+    color: var(--accent);
+    background: var(--accent-light);
+}
+
+.tag-close {
+    flex-shrink: 0;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    line-height: 1;
+    color: var(--text-tertiary);
+    transition: color var(--transition);
+}
+
+.tag:hover .tag-close {
+    color: var(--text-secondary);
 }
 </style>

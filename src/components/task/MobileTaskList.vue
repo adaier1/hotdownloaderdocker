@@ -188,15 +188,17 @@ export default defineComponent({
 
 .task-card {
     min-width: 0;
-    background: var(--bg-sidebar);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
     padding: 12px;
-    transition: border-color 0.2s;
+    box-shadow: var(--shadow-sm);
+    transition: all var(--transition);
 }
 
 .task-card.is-selected {
-    border-color: var(--color-text-secondary);
+    border-color: var(--accent);
+    background: var(--accent-light);
 }
 
 .task-card-header {
@@ -244,9 +246,9 @@ export default defineComponent({
     overflow-wrap: anywhere;
     font-size: 12px;
     color: var(--color-text-secondary, #555);
-    background: var(--bg-body);
+    background: var(--bg);
     padding: 2px 8px;
-    border-radius: 4px;
+    border-radius: 6px;
 }
 
 .task-card-speed {

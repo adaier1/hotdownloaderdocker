@@ -293,9 +293,10 @@ async function handleClearAll() {
     padding: 12px;
     margin-bottom: 12px;
     flex-wrap: wrap;
-    background: var(--bg-sidebar);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
 }
 
 .task-toolbar-hint {

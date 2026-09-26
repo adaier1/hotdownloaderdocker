@@ -78,8 +78,9 @@ function goAbout() {
 <style scoped>
 .settings-view {
     width: 100%;
-    max-width: 800px;
+    max-width: 680px;
     min-width: 0;
+    margin: 0 auto;
     /* 让设置页占满父容器高度，使用 flex 列布局 */
     display: flex;
     flex-direction: column;
@@ -92,27 +93,42 @@ function goAbout() {
 }
 
 .settings-section {
-    margin-bottom: 16px;
-    padding: 20px;
-    min-width: 0;
-    background: var(--bg-sidebar);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-}
-
-.account-section {
     margin-bottom: 20px;
-}
-
-.settings-section+.settings-section {
-    padding-top: 20px;
+    min-width: 0;
+    background: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
 }
 
 .section-title {
-    font-size: 16px;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border-light);
+    font-size: 15px;
     font-weight: 600;
-    margin-bottom: 12px;
-    color: var(--color-text);
+    color: var(--text-primary);
+}
+
+/* 表单内容区留白（仅顶层表单，避免影响登录弹窗内的嵌套表单） */
+.settings-view :deep(.settings-section > .n-form) {
+    padding: 8px 24px;
+}
+
+/* 每个设置项作为一行，行间用细分隔线区分 */
+.settings-view :deep(.settings-section > .n-form > .n-form-item) {
+    padding: 14px 0;
+    margin-bottom: 0;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.settings-view :deep(.settings-section > .n-form > .n-form-item:last-child) {
+    border-bottom: none;
+}
+
+.settings-view :deep(.n-form-item-label) {
+    font-weight: 500;
+    color: var(--text-primary);
 }
 
 .about-entry {
@@ -149,9 +165,12 @@ function goAbout() {
 }
 
 @media (max-width: 767px) {
-    .settings-section,
-    .settings-section + .settings-section {
-        padding: 16px 12px;
+    .section-title {
+        padding: 14px 16px;
+    }
+
+    .settings-view :deep(.n-form) {
+        padding: 4px 16px;
     }
 
     .settings-view :deep(.n-button) {

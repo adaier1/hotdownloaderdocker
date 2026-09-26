@@ -123,6 +123,9 @@ watch(
     display: flex;
     flex-direction: column;
     gap: 16px;
+    width: 100%;
+    max-width: 800px;
+    margin: 0 auto;
     min-width: 0;
 }
 
@@ -136,7 +139,7 @@ watch(
 .empty-wrapper {
     display: flex;
     justify-content: center;
-    padding: 40px 0;
+    padding: 80px 0;
 }
 
 .playlist-info {
@@ -144,9 +147,10 @@ watch(
     gap: 16px;
     align-items: center;
     padding: 16px;
-    background-color: var(--bg-sidebar);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
+    background-color: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
 }
 
 .playlist-cover {

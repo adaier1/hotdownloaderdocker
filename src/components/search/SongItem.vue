@@ -113,13 +113,20 @@ watch(() => props.song.id, () => {
     gap: 12px;
     min-width: 0;
     padding: 12px;
-    background-color: var(--bg-sidebar);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
+    background-color: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    transition: all var(--transition);
+}
+
+.song-item:hover {
+    box-shadow: var(--shadow-md);
 }
 
 .song-item.is-selected {
-    border-color: var(--color-text-secondary);
+    border-color: var(--accent);
+    background-color: var(--accent-light);
 }
 
 .cover-wrapper {

@@ -185,11 +185,23 @@ const columns: DataTableColumn<TaskRecord>[] = [
 .task-table {
     min-width: 0;
     flex-shrink: 0;
+    background: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
 }
 
-/* 固定列布局配合表格内部横向滚动，长内容在单元格内换行或省略 */
+/* 表头使用浅色背景，与内容区分 */
+.task-table :deep(.n-data-table-th) {
+    background-color: var(--bg);
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
 .task-table :deep(.n-data-table-td) {
     overflow-wrap: anywhere;
+    border-bottom: 1px solid var(--border-light);
 }
 
 .task-table :deep(.task-speed) {

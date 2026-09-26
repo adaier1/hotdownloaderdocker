@@ -73,9 +73,10 @@ const hasAny = computed(
 .search-suggestions {
     margin-top: 12px;
     padding: 12px;
-    background-color: var(--bg-sidebar);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
+    background-color: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
 }
 
 .suggest-group {
@@ -103,7 +104,7 @@ const hasAny = computed(
 }
 
 .suggest-item:hover {
-    background: var(--bg-body);
+    background: var(--bg);
 }
 
 .item-name {

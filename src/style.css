@@ -9,8 +9,8 @@
 html,
 body {
   height: 100%;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
-    Ubuntu, Cantarell, 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text',
+    'Helvetica Neue', Helvetica, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -22,38 +22,46 @@ body {
   height: 100dvh;
 }
 
-/* 浅色模式（默认） */
+/* ===== 设计令牌（Apple 风格 · 浅色） ===== */
 :root {
-  --bg-body: #f4f7f6;
-  --bg-sidebar: #ffffff;
-  --bg-bottom: #ffffff;
-  --bg-content: #f4f7f6;
-  --border-color: #dfe7e3;
-  --color-text: #202d28;            /* 主文字颜色 */
-  --color-text-secondary: #6b7b73;  /* 次要文字颜色 */
-  --color-primary: #178366;
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --text-primary: #1d1d1f;
+  --text-secondary: #86868b;
+  --text-tertiary: #aeaeb2;
+  --accent: #0071e3;
+  --accent-hover: #0077ed;
+  --accent-light: #e8f0fe;
+  --border: #d2d2d7;
+  --border-light: #e8e8ed;
+  --success: #34c759;
+  --warning: #ff9500;
+  --danger: #ff3b30;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.08);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* 兼容既有组件使用的变量名 */
+  --bg-body: var(--bg);
+  --bg-sidebar: var(--surface);
+  --bg-bottom: var(--surface);
+  --bg-content: var(--bg);
+  --border-color: var(--border);
+  --color-text: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-primary: var(--accent);
+
   /* 优先使用插件注入的变量；如果插件未生效，回退到 env()；再回退到 0px 保证兼容。 */
-  --safe-area-top:    var(--edge-top,    env(safe-area-inset-top,    0px));
+  --safe-area-top: var(--edge-top, env(safe-area-inset-top, 0px));
   --safe-area-bottom: var(--edge-bottom, env(safe-area-inset-bottom, 0px));
-  --safe-area-left:   var(--edge-left,   env(safe-area-inset-left,   0px));
-  --safe-area-right:  var(--edge-right,  env(safe-area-inset-right,  0px));
+  --safe-area-left: var(--edge-left, env(safe-area-inset-left, 0px));
+  --safe-area-right: var(--edge-right, env(safe-area-inset-right, 0px));
 
-  /* 让浏览器根据系统主题自动切换滚动条配色 */
-  color-scheme: light dark;
-}
-
-/* 深色模式 */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg-body: #111815;
-    --bg-sidebar: #18211d;
-    --bg-bottom: #18211d;
-    --bg-content: #111815;
-    --border-color: #314139;
-    --color-text: #e5eee9;            /* 浅色文字 */
-    --color-text-secondary: #96aaa0;  /* 次要文字 */
-    --color-primary: #6ee7bc;
-  }
+  color-scheme: light;
 }
 
 /* 应用背景到 body，确保滚动背景不露白 */

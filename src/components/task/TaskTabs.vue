@@ -1,21 +1,14 @@
 <template>
-    <n-tabs :value="activeTab" @update:value="$emit('update:activeTab', $event)"
-        :type="isNarrow ? 'line' : 'segment'" size="medium">
-        <n-tab-pane name="all" :tab="`全部 (${counts.total})`" />
-        <n-tab-pane name="waiting" :tab="`等待中 (${counts.waiting})`" />
-        <n-tab-pane name="downloading" :tab="`下载中 (${counts.downloading})`" />
-        <n-tab-pane name="paused" :tab="`暂停 (${counts.paused})`" />
-        <n-tab-pane name="completed" :tab="`已完成 (${counts.completed})`" />
-        <n-tab-pane name="error" :tab="`错误 (${counts.error})`" />
-    </n-tabs>
+    <div class="task-tabs" role="tablist">
+        <button v-for="tab in tabs" :key="tab.key" type="button" class="task-tab"
+            :class="{ active: activeTab === tab.key }" role="tab" :aria-selected="activeTab === tab.key"
+            @click="$emit('update:activeTab', tab.key)">
+            {{ tab.label }} ({{ counts[tab.countKey] }})
+        </button>
+    </div>
 </template>
 
 <script setup lang="ts">
-import { NTabs, NTabPane } from 'naive-ui'
-import { useNarrowLayout } from '../../composables/useNarrowLayout'
-
-const isNarrow = useNarrowLayout()
-
 export interface TabCounts {
     total: number
     waiting: number
@@ -33,4 +26,53 @@ defineProps<{
 defineEmits<{
     (e: 'update:activeTab', value: string): void
 }>()
+
+const tabs: Array<{ key: string; label: string; countKey: keyof TabCounts }> = [
+    { key: 'all', label: '全部', countKey: 'total' },
+    { key: 'waiting', label: '等待中', countKey: 'waiting' },
+    { key: 'downloading', label: '下载中', countKey: 'downloading' },
+    { key: 'paused', label: '暂停', countKey: 'paused' },
+    { key: 'completed', label: '已完成', countKey: 'completed' },
+    { key: 'error', label: '错误', countKey: 'error' },
+]
 </script>
+
+<style scoped>
+.task-tabs {
+    display: flex;
+    gap: 2px;
+    background: var(--surface);
+    border-radius: var(--radius-md);
+    padding: 3px;
+    margin-bottom: 20px;
+    box-shadow: var(--shadow-sm);
+    width: fit-content;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.task-tab {
+    padding: 7px 16px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition);
+    border: none;
+    background: none;
+    font-family: inherit;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.task-tab:hover {
+    color: var(--text-primary);
+}
+
+.task-tab.active {
+    background: var(--bg);
+    color: var(--text-primary);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+</style>

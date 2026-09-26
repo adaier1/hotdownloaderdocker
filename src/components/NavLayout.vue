@@ -2,7 +2,18 @@
     <div class="nav-layout" :class="{ 'is-narrow': isNarrow }">
         <!-- 宽屏左侧垂直导航 -->
         <aside v-if="!isNarrow" class="sidebar">
-            <n-menu :value="currentRoute" :options="menuOptions" @update:value="handleMenuClick" />
+            <div class="sidebar-logo">
+                <div class="sidebar-logo-icon">H</div>
+                <div class="sidebar-logo-text">HotDownloader</div>
+            </div>
+            <nav class="nav-list">
+                <button v-for="item in navItems" :key="item.key" class="nav-item"
+                    :class="{ active: currentRoute === item.key }" type="button" @click="handleMenuClick(item.key)">
+                    <NavIcon :name="item.icon" class="nav-item-icon" />
+                    <span>{{ item.label }}</span>
+                </button>
+            </nav>
+            <div class="sidebar-footer">v{{ version }}</div>
         </aside>
 
         <!-- 内容区域 -->
@@ -15,11 +26,14 @@
             </router-view>
         </main>
 
-        <!-- 窄屏底部水平导航：在正常文档流中固定占位，菜单始终居中 -->
+        <!-- 窄屏底部水平导航：在正常文档流中固定占位 -->
         <footer v-if="isNarrow" class="bottom-nav">
             <div class="bottom-nav-inner">
-                <n-menu :value="currentRoute" :options="menuOptions" mode="horizontal"
-                    @update:value="handleMenuClick" />
+                <button v-for="item in navItems" :key="item.key" class="bottom-nav-item"
+                    :class="{ active: currentRoute === item.key }" type="button" @click="handleMenuClick(item.key)">
+                    <NavIcon :name="item.icon" class="bottom-nav-icon" />
+                    <span>{{ item.label }}</span>
+                </button>
             </div>
         </footer>
     </div>
@@ -28,12 +42,14 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { NMenu, useNotification, type MenuOption } from 'naive-ui'
+import { useNotification } from 'naive-ui'
+import NavIcon from './NavIcon.vue'
 import { useCloseGuard } from '../composables/useCloseGuard'
 import { useNarrowLayout } from '../composables/useNarrowLayout'
 
 const router = useRouter()
 const route = useRoute()
+const version = import.meta.env.VITE_APP_VERSION
 const viewKey = computed(() => {
     return ['/artist', '/album'].includes(route.path) ? route.fullPath : route.path
 })
@@ -92,23 +108,11 @@ const currentRoute = computed(() => {
     return route.path.startsWith('/settings/') ? '/settings' : route.path
 })
 
-const menuOptions: MenuOption[] = [
-    {
-        label: '搜索',
-        key: '/search'
-    },
-    {
-        label: '歌单',
-        key: '/playlist'
-    },
-    {
-        label: '任务',
-        key: '/task'
-    },
-    {
-        label: '设置',
-        key: '/settings'
-    },
+const navItems = [
+    { key: '/search', label: '搜索', icon: 'search' as const },
+    { key: '/playlist', label: '歌单', icon: 'playlist' as const },
+    { key: '/task', label: '任务', icon: 'task' as const },
+    { key: '/settings', label: '设置', icon: 'settings' as const },
 ]
 
 function handleMenuClick(key: string) {
@@ -121,7 +125,7 @@ function handleMenuClick(key: string) {
 <style scoped>
 /* 布局整体 */
 .nav-layout {
-    --page-padding: 24px;
+    --page-padding: 32px;
 
     display: flex;
     height: 100%;
@@ -134,18 +138,96 @@ function handleMenuClick(key: string) {
     flex-direction: column;
 }
 
-/* 侧边栏：使用自定义背景变量 */
+/* 侧边栏：毛玻璃背景 */
 .sidebar {
-    width: 176px;
+    width: 220px;
     flex-shrink: 0;
-    border-right: 1px solid var(--border-color);
-    padding: 16px 8px;
-    background-color: var(--bg-sidebar);
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border-light);
+    padding: 20px 12px;
+    background-color: rgba(255, 255, 255, 0.72);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
     overflow-y: auto;
 
     /* 横屏时让导航避开状态栏和侧边安全区。 */
-    padding-top: calc(16px + var(--safe-area-top));
-    padding-left: calc(8px + var(--safe-area-left));
+    padding-top: calc(20px + var(--safe-area-top));
+    padding-left: calc(12px + var(--safe-area-left));
+}
+
+.sidebar-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 8px 24px;
+}
+
+.sidebar-logo-icon {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-weight: 700;
+    font-size: 16px;
+}
+
+.sidebar-logo-text {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.nav-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    font-family: inherit;
+    transition: all var(--transition);
+    border: none;
+    background: none;
+    width: 100%;
+    text-align: left;
+}
+
+.nav-item:hover {
+    background: rgba(0, 0, 0, 0.04);
+    color: var(--text-primary);
+}
+
+.nav-item.active {
+    background: var(--accent);
+    color: #fff;
+}
+
+.nav-item-icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+.sidebar-footer {
+    margin-top: auto;
+    padding: 12px 8px 0;
+    font-size: 11px;
+    color: var(--text-tertiary);
 }
 
 /* 主内容区背景 */
@@ -162,7 +244,7 @@ function handleMenuClick(key: string) {
     padding-left: calc(var(--page-padding) + var(--safe-area-left));
     padding-right: calc(var(--page-padding) + var(--safe-area-right));
 
-    /* 将回弹限制在当前滚动容器内部，保留视觉回弹但阻断滚动链向上传播，恢复主内容区滚动到顶端/底端时的回弹效果，同时避免回弹传播导致底部导航移动 */
+    /* 将回弹限制在当前滚动容器内部，保留视觉回弹但阻断滚动链向上传播 */
     overscroll-behavior: contain;
 }
 
@@ -173,44 +255,50 @@ function handleMenuClick(key: string) {
     padding-right: calc(16px + var(--safe-area-right));
 }
 
-/* 底部导航：改用正常流布局（非 fixed），解决 Android 滚动回弹时导航被拉伸的问题 */
-/* 需配合 flex 列容器使用，主内容无需预留底部内边距，高度由 flex 分配 */
+/* 底部导航：正常流布局，高度由 flex 分配 */
 .bottom-nav {
     width: 100%;
     height: 56px;
     flex-shrink: 0;
-    border-top: 1px solid var(--border-color);
+    border-top: 1px solid var(--border-light);
     background-color: var(--bg-bottom);
     padding-left: var(--safe-area-left);
     padding-right: var(--safe-area-right);
 }
 
-/* 居中容器 */
 .bottom-nav-inner {
     width: 100%;
     height: 100%;
     display: flex;
     justify-content: center;
-    align-items: center;
+    align-items: stretch;
 }
 
-/* 穿透样式强制菜单项居中 */
-.bottom-nav-inner :deep(.n-menu) {
-    width: 100%;
-    justify-content: center;
-}
-
-.bottom-nav-inner :deep(.n-menu .n-menu-item) {
+.bottom-nav-item {
     flex: 1;
     min-width: 0;
-}
-
-/* 四个入口平分底栏，保持文字居中和足够的触控高度。 */
-.bottom-nav-inner :deep(.n-menu-item-content) {
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 2px;
     min-height: 44px;
-    padding: 0 8px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    transition: color var(--transition);
+}
+
+.bottom-nav-item.active {
+    color: var(--accent);
+}
+
+.bottom-nav-icon {
+    width: 20px;
+    height: 20px;
 }
 </style>

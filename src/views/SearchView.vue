@@ -6,16 +6,16 @@
                 :platform-options="PLATFORMS" :placeholder="searchPlaceholder" button-text="搜索"
                 @search="handleSearch" />
 
-            <!-- 搜索类型切换按钮 -->
-            <div class="type-switch">
-                <n-button quaternary :type="searchType === 'song' ? 'primary' : 'default'"
-                    @click="switchSearchType('song')">歌曲</n-button>
-                <n-button quaternary :type="searchType === 'artist' ? 'primary' : 'default'"
-                    @click="switchSearchType('artist')">歌手</n-button>
-                <n-button quaternary :type="searchType === 'album' ? 'primary' : 'default'"
-                    @click="switchSearchType('album')">专辑</n-button>
-                <n-button quaternary :type="searchType === 'playlist' ? 'primary' : 'default'"
-                    @click="switchSearchType('playlist')">歌单</n-button>
+            <!-- 搜索类型切换胶囊标签 -->
+            <div class="search-tabs">
+                <button type="button" class="search-tab" :class="{ active: searchType === 'song' }"
+                    @click="switchSearchType('song')">歌曲</button>
+                <button type="button" class="search-tab" :class="{ active: searchType === 'artist' }"
+                    @click="switchSearchType('artist')">歌手</button>
+                <button type="button" class="search-tab" :class="{ active: searchType === 'album' }"
+                    @click="switchSearchType('album')">专辑</button>
+                <button type="button" class="search-tab" :class="{ active: searchType === 'playlist' }"
+                    @click="switchSearchType('playlist')">歌单</button>
             </div>
         </div>
 
@@ -379,6 +379,9 @@ function onBatchDownload() {
 .search-view {
     display: flex;
     flex-direction: column;
+    width: 100%;
+    max-width: 800px;
+    margin: 0 auto;
     min-width: 0;
     /* 防止底部导航遮挡 */
     min-height: 100%;
@@ -388,24 +391,42 @@ function onBatchDownload() {
 .search-header {
     display: flex;
     flex-direction: column;
-    gap: 8px;
     margin-bottom: 16px;
 }
 
-.type-switch {
+/* 搜索类型胶囊标签 */
+.search-tabs {
     display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 28px;
 }
 
-/* 搜索栏和类型切换的间距由 search-header 统一控制 */
-.search-header :deep(.search-bar) {
-    margin-bottom: 0;
+.search-tab {
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all var(--transition);
+    border: none;
+    background: none;
+    font-family: inherit;
+}
+
+.search-tab:hover {
+    color: var(--text-primary);
+}
+
+.search-tab.active {
+    background: var(--surface);
+    color: var(--accent);
+    box-shadow: var(--shadow-sm);
 }
 
 @media (max-width: 767px) {
-    .type-switch .n-button {
-        min-height: 44px;
+    .search-tab {
+        min-height: 36px;
     }
 }
 
