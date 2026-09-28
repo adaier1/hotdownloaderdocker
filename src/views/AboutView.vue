@@ -1,16 +1,15 @@
 <template>
     <div class="about-view">
         <!-- 在关于页面左上角添加返回按钮，提供明确的返回导航入口 -->
-        <div class="back-row">
-            <n-button text @click="goBack">← 返回</n-button>
-        </div>
+        <n-button @click="goBack">返回</n-button>
+
         <div class="about-card">
             <h1 class="app-title">HotDownloader</h1>
             <!-- 直接使用注入的变量，不再硬编码 -->
             <div class="app-version">版本 {{ version }}</div>
             <!-- 更新为与 README 一致的跨平台描述 -->
             <p class="app-description">
-                基于 Tauri 2 + Vue 3 的跨平台音乐下载应用，支持桌面端（Windows/macOS/Linux）与 Android 端，提供搜索、歌单导入、多任务下载、自动降级、音频解密等功能。
+                基于共享 Rust 下载核心和 Vue 3 的音乐下载工具，支持 Tauri 桌面端、Android 端与 Docker/Web 部署，提供搜索、歌单导入、多任务下载、自动降级、音频解密等功能。
             </p>
         </div>
 
@@ -35,33 +34,53 @@
 
         <div class="about-section">
             <h2 class="section-title">第三方组件</h2>
-            <h3 class="sub-title">Rust</h3>
+
+            <h3 class="sub-title">Rust ({{ rustComponents.length }})</h3>
             <n-ul class="component-list">
-                <n-li v-for="item in rustComponents" :key="item.name" class="component-item">
+                <n-li v-for="item in rustComponents" :key="item.name" class="component-item component-item--clickable"
+                    @click="openLicense(item)">
                     <span class="component-name">{{ item.name }}</span>
                     <span class="component-license">{{ item.license }}</span>
                 </n-li>
             </n-ul>
 
-            <h3 class="sub-title">Frontend</h3>
+            <h3 class="sub-title">Frontend ({{ frontendComponents.length }})</h3>
             <n-ul class="component-list">
-                <n-li v-for="item in frontendComponents" :key="item.name" class="component-item">
+                <n-li v-for="item in frontendComponents" :key="item.name"
+                    class="component-item component-item--clickable" @click="openLicense(item)">
                     <span class="component-name">{{ item.name }}</span>
                     <span class="component-license">{{ item.license }}</span>
                 </n-li>
             </n-ul>
         </div>
+
+        <n-modal v-model:show="showModal" preset="card" :title="modalTitle"
+            style="width: min(720px, 92vw); max-height: 80vh;" :bordered="false">
+            <n-scrollbar style="max-height: 60vh;">
+                <pre class="license-fulltext">{{ modalText }}</pre>
+            </n-scrollbar>
+        </n-modal>
     </div>
 </template>
 
 <script setup lang="ts">
-import { NUl, NLi, NA } from 'naive-ui'
+import { ref } from 'vue'
+import { NButton, NUl, NLi, NA, NModal, NScrollbar } from 'naive-ui'
 import { useRouter } from 'vue-router'
-import { rustComponents, frontendComponents } from '../data/licenses'
+import {
+    rustComponents,
+    frontendComponents,
+    licenseTexts,
+    type ComponentInfo,
+} from '../data/licenses'
 
 const version = import.meta.env.VITE_APP_VERSION
 
 const router = useRouter()
+
+const showModal = ref(false)
+const modalTitle = ref('')
+const modalText = ref('')
 
 // 处理返回按钮点击逻辑，确保用户能正确回到上一页
 function goBack() {
@@ -72,11 +91,36 @@ function goBack() {
         router.push('/settings')
     }
 }
+
+// 点击组件行时，弹出该组件涉及的许可证全文
+function openLicense(item: ComponentInfo) {
+    const ids = new Set<string>()
+    const tokens = item.license
+        .replace(/[()]/g, ' ')
+        .split(/\s+/)
+        .filter(Boolean)
+    for (let i = 0; i < tokens.length; i++) {
+        const t = tokens[i]
+        if (t === 'OR' || t === 'AND') continue
+        if (t === 'WITH') { i++; continue }
+        ids.add(t)
+    }
+
+    const parts: string[] = []
+    for (const id of ids) {
+        const found = licenseTexts.find((l) => l.id === id)
+        if (found) parts.push(`── ${found.name} (${found.id}) ──\n\n${found.text}`)
+    }
+
+    modalTitle.value = `${item.name} @ ${item.version}`
+    modalText.value = parts.length > 0 ? parts.join('\n\n') : '未找到许可证全文。'
+    showModal.value = true
+}
 </script>
 
 <style scoped>
 .about-view {
-    max-width: 680px;
+    max-width: 800px;
     min-width: 0;
     margin: 0 auto;
     padding: 0;
@@ -85,19 +129,15 @@ function goBack() {
     gap: 16px;
 }
 
-/* 使用 flex 让按钮左对齐，并设置底部外边距与内容分隔 */
-.back-row {
-    display: flex;
-    justify-content: flex-start;
-    /* 轻微调整与下方卡片的间距，保持整体 gap 视觉统一 */
-    margin-bottom: -8px;
+.about-view > .n-button {
+    align-self: flex-start;
 }
 
 .about-card {
-    background-color: var(--surface);
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-sm);
+    /* 使用全局定义的侧边栏背景色，自动适配深色模式 */
+    background-color: var(--bg-sidebar);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
     padding: 24px;
     text-align: center;
 }
@@ -122,10 +162,9 @@ function goBack() {
 }
 
 .about-section {
-    background-color: var(--surface);
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-sm);
+    background-color: var(--bg-sidebar);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
     padding: 16px 20px;
 }
 
@@ -164,6 +203,16 @@ function goBack() {
     border-bottom: none;
 }
 
+.component-item--clickable {
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.15s;
+}
+
+.component-item--clickable:hover {
+    background-color: var(--border-color);
+}
+
 .component-name {
     overflow-wrap: anywhere;
     font-size: 14px;
@@ -182,14 +231,20 @@ function goBack() {
     line-height: 1.6;
 }
 
+.license-fulltext {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--color-text-secondary);
+    margin: 0;
+}
+
 @media (max-width: 767px) {
     .about-card,
     .about-section {
         padding: 16px 12px;
-    }
-
-    .back-row :deep(.n-button) {
-        min-height: 44px;
     }
 }
 </style>

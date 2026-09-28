@@ -1,5 +1,16 @@
 <template>
     <div class="settings-view" :class="{ 'is-narrow': isNarrow }">
+        <n-alert v-if="settingsStore.saveError" type="error" class="settings-alert">
+            设置保存失败：{{ settingsStore.saveError }}
+        </n-alert>
+        <n-alert v-if="settingsStore.conflictFields.length" type="warning" class="settings-alert">
+            以下设置已在其他页面更新，请逐项选择要保留的值：
+            <div v-for="field in settingsStore.conflictFields" :key="field" class="conflict-row">
+                <span>{{ settingLabel(field) }}</span>
+                <n-button size="small" @click="settingsStore.resolveConflict(field, false)">使用最新设置</n-button>
+                <n-button size="small" type="primary" @click="settingsStore.resolveConflict(field, true)">保留本页修改</n-button>
+            </div>
+        </n-alert>
         <!-- 移动端：分组纵向布局；桌面端：原有左右分栏表单。
              共用组件实例，缩放窗口时保留登录输入和弹窗中的编辑草稿。 -->
         <!-- 账号设置：独立分类，位于基本设置上方，增加底部间距避免与下方黏连 -->
@@ -7,6 +18,30 @@
             <h2 class="section-title">账号设置</h2>
             <n-form :label-placement="isNarrow ? 'top' : 'left'">
                 <LoginSetting />
+            </n-form>
+        </div>
+
+        <!-- 安全设置：仅 Web 版支持修改访问密码（桌面端不经过 HTTP 认证） -->
+        <div v-if="!native" class="settings-section">
+            <h2 class="section-title">安全设置</h2>
+            <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 180">
+                <SecuritySetting />
+            </n-form>
+        </div>
+
+        <!-- MCP 接入：仅 Web 版提供，展示带密钥的接入链接 -->
+        <div v-if="!native" class="settings-section">
+            <h2 class="section-title">MCP 接入</h2>
+            <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 180">
+                <McpSetting />
+            </n-form>
+        </div>
+
+        <!-- 通知设置：飞书机器人推送（仅 Web 版） -->
+        <div v-if="!native" class="settings-section">
+            <h2 class="section-title">通知设置</h2>
+            <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 180">
+                <FeishuNotifySetting />
             </n-form>
         </div>
 
@@ -31,12 +66,12 @@
                 <ConcurrencySetting />
                 <JumpToTaskSetting />
                 <DuplicateStrategySetting />
-                <NotifySetting />
+                <NotifySetting v-if="native" />
             </n-form>
         </div>
 
         <!-- 检查更新组件 -->
-        <UpdateChecker />
+        <UpdateChecker v-if="native" />
 
         <!-- 关于入口（始终位于页面底部） -->
         <div class="about-entry">
@@ -48,7 +83,7 @@
 <script setup lang="ts">
 import { useNarrowLayout } from '../composables/useNarrowLayout'
 import { useRouter } from 'vue-router'
-import { NForm, NButton } from 'naive-ui'
+import { NForm, NButton, NAlert } from 'naive-ui'
 import QualitySetting from '../components/settings/QualitySetting.vue'
 import DowngradeSetting from '../components/settings/DowngradeSetting.vue'
 import DirectorySetting from '../components/settings/DirectorySetting.vue'
@@ -61,14 +96,43 @@ import ClearHistoryButton from '../components/settings/ClearHistoryButton.vue'
 import WriteMetadataSetting from '../components/settings/WriteMetadataSetting.vue'
 import DownloadLrcSetting from '../components/settings/DownloadLrcSetting.vue'
 import LoginSetting from '../components/settings/LoginSetting.vue'
+import SecuritySetting from '../components/settings/SecuritySetting.vue'
+import McpSetting from '../components/settings/McpSetting.vue'
+import FeishuNotifySetting from '../components/settings/FeishuNotifySetting.vue'
 import DuplicateStrategySetting from '../components/settings/DuplicateStrategySetting.vue'
 import NotifySetting from '../components/settings/NotifySetting.vue'
 import UpdateChecker from '../components/settings/UpdateChecker.vue'
+import { isNativeRuntime } from '../api/runtimeApi'
+import { useSettingsStore } from '../stores/settingsStore'
+import type { Settings } from '../types'
 
 const router = useRouter()
 
 // 移动端响应式布局状态
 const isNarrow = useNarrowLayout()
+const native = isNativeRuntime()
+const settingsStore = useSettingsStore()
+
+const settingLabels: Partial<Record<keyof Settings, string>> = {
+    defaultQuality: '默认音质',
+    autoDowngrade: '自动降级',
+    qualityDowngradeOrder: '音质降级顺序',
+    downloadDir: '下载目录',
+    namingTemplate: '文件命名规则',
+    maxConcurrent: '并发下载数',
+    jumpToTask: '添加后跳转任务',
+    artistSeparator: '歌手连接符',
+    safFolderUri: 'Android 文件夹',
+    safFolderName: 'Android 文件夹名称',
+    writeMetadata: '写入元数据',
+    downloadLrc: '下载歌词',
+    duplicateStrategy: '重复文件处理',
+    notifyOnComplete: '完成通知',
+}
+
+function settingLabel(field: keyof Settings): string {
+    return settingLabels[field] ?? field
+}
 
 function goAbout() {
     router.push('/settings/about')
@@ -78,13 +142,24 @@ function goAbout() {
 <style scoped>
 .settings-view {
     width: 100%;
-    max-width: 680px;
+    max-width: 800px;
     min-width: 0;
-    margin: 0 auto;
     /* 让设置页占满父容器高度，使用 flex 列布局 */
     display: flex;
     flex-direction: column;
     min-height: 100%;
+}
+
+.settings-alert {
+    margin-bottom: 16px;
+}
+
+.conflict-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
 }
 
 /* 移动端移除最大宽度限制，撑满父容器 */
@@ -93,42 +168,27 @@ function goAbout() {
 }
 
 .settings-section {
-    margin-bottom: 20px;
+    margin-bottom: 16px;
+    padding: 20px;
     min-width: 0;
-    background: var(--surface);
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-sm);
-    overflow: hidden;
+    background: var(--bg-sidebar);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+.account-section {
+    margin-bottom: 20px;
+}
+
+.settings-section+.settings-section {
+    padding-top: 20px;
 }
 
 .section-title {
-    padding: 16px 24px;
-    border-bottom: 1px solid var(--border-light);
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 600;
-    color: var(--text-primary);
-}
-
-/* 表单内容区留白（仅顶层表单，避免影响登录弹窗内的嵌套表单） */
-.settings-view :deep(.settings-section > .n-form) {
-    padding: 8px 24px;
-}
-
-/* 每个设置项作为一行，行间用细分隔线区分 */
-.settings-view :deep(.settings-section > .n-form > .n-form-item) {
-    padding: 14px 0;
-    margin-bottom: 0;
-    border-bottom: 1px solid var(--border-light);
-}
-
-.settings-view :deep(.settings-section > .n-form > .n-form-item:last-child) {
-    border-bottom: none;
-}
-
-.settings-view :deep(.n-form-item-label) {
-    font-weight: 500;
-    color: var(--text-primary);
+    margin-bottom: 12px;
+    color: var(--color-text);
 }
 
 .about-entry {
@@ -165,12 +225,9 @@ function goAbout() {
 }
 
 @media (max-width: 767px) {
-    .section-title {
-        padding: 14px 16px;
-    }
-
-    .settings-view :deep(.n-form) {
-        padding: 4px 16px;
+    .settings-section,
+    .settings-section + .settings-section {
+        padding: 16px 12px;
     }
 
     .settings-view :deep(.n-button) {

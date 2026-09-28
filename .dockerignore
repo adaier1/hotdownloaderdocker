@@ -1,8 +1,11 @@
-# 构建上下文排除项
 .git
-.gitignore
+.npm-cache
 node_modules
 dist
 **/target
-**/*.tmp
-**/.*.tmpdir
+**/*.log
+.env
+.env.*
+data
+tests
+docs

@@ -2,9 +2,9 @@
     <div v-if="!loading && keywords.length > 0" class="hot-keywords">
         <div class="hot-header">热搜推荐</div>
         <div class="hot-list">
-            <button v-for="word in keywords" :key="word" type="button" class="tag" @click="$emit('select', word)">
+            <n-tag v-for="word in keywords" :key="word" class="hot-tag" size="medium" @click="$emit('select', word)">
                 {{ word }}
-            </button>
+            </n-tag>
         </div>
     </div>
     <div v-else-if="loading" class="hot-loading">
@@ -13,7 +13,7 @@
 </template>
 
 <script setup lang="ts">
-import { NSpin } from 'naive-ui'
+import { NTag, NSpin } from 'naive-ui'
 
 defineProps<{
     keywords: string[]
@@ -27,14 +27,14 @@ defineEmits<{
 
 <style scoped>
 .hot-keywords {
-    margin-bottom: 28px;
+    margin-top: 16px;
 }
 
 .hot-header {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 12px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    margin-bottom: 8px;
 }
 
 .hot-list {
@@ -43,27 +43,27 @@ defineEmits<{
     gap: 8px;
 }
 
-.tag {
-    display: inline-flex;
-    align-items: center;
-    max-width: 100%;
-    padding: 6px 14px;
-    background: var(--surface);
-    border-radius: 16px;
-    font-size: 12px;
-    color: var(--text-secondary);
+.hot-tag {
     cursor: pointer;
-    transition: all var(--transition);
-    border: none;
-    font-family: inherit;
-    box-shadow: var(--shadow-sm);
-    overflow-wrap: anywhere;
-    text-align: left;
+    max-width: 100%;
+    transition: opacity 0.2s;
 }
 
-.tag:hover {
-    color: var(--accent);
-    background: var(--accent-light);
+.hot-tag :deep(.n-tag__content) {
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.hot-tag.n-tag {
+    height: auto;
+    min-height: 32px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
+
+.hot-tag:hover {
+    opacity: 0.8;
 }
 
 .hot-loading {

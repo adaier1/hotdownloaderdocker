@@ -8,14 +8,16 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+.npm-cache
+.env
+.env.*
 dist
 dist-ssr
 dist-windows
+**/target/
+data/
+downloads/
 *.local
-
-# Rust build artifacts
-target/
-server/target/
 
 # Editor directories and files
 .vscode/*
@@ -27,3 +29,9 @@ server/target/
 *.njsproj
 *.sln
 *.sw?
+
+# Test files
+tests/
+
+# Docs
+docs/

@@ -2,13 +2,10 @@
     <div class="search-bar">
         <!-- 平台选择下拉 -->
         <n-dropdown :options="platformDropdownOptions" trigger="click" @select="handlePlatformSelect">
-            <button type="button" class="platform-btn">
+            <n-button quaternary size="small" class="platform-btn">
                 <span class="platform-label">{{ currentPlatformLabel }}</span>
-                <svg class="platform-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-                    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                    <polyline points="6 9 12 15 18 9" />
-                </svg>
-            </button>
+                <span class="platform-arrow">▾</span>
+            </n-button>
         </n-dropdown>
 
         <n-input v-model:value="keywordModel" :placeholder="placeholder" clearable @keyup.enter="handleSearch"
@@ -96,75 +93,88 @@ function handleClear() {
 }
 </script>
 
+<!-- ===== 必要的 CSS 变量（仅布局/主题，非组件颜色） ===== -->
 <style scoped>
 .search-bar {
     --search-height: 44px;
     --search-font-size: 14px;
+    --search-radius: 8px;
+    /* 统一圆角 */
+    --search-padding: 8px;
+    --search-gap: 8px;
 
+    /* 容器背景/阴影（支持深色模式） */
+    --search-bg: var(--bg-sidebar);
+    --search-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    --search-shadow-focus: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+</style>
+
+<!-- ===== 组件样式（仅布局覆盖，颜色/圆角尽量用原生） ===== -->
+<style scoped>
+.search-bar {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--search-gap);
     min-width: 0;
-    margin-bottom: 24px;
-    background: var(--surface);
-    padding: 6px 6px 6px 18px;
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-md);
-    transition: box-shadow var(--transition);
+    margin-bottom: 16px;
+    background: var(--search-bg);
+    padding: var(--search-padding);
+    border: 1px solid var(--border-color);
+    border-radius: var(--search-radius);
+    /* 外层圆角 */
+    box-shadow: var(--search-shadow);
+    transition: box-shadow 0.2s ease;
 }
 
 .search-bar:focus-within {
-    box-shadow: var(--shadow-lg);
+    box-shadow: var(--search-shadow-focus);
 }
 
-/* 平台按钮样式：纯文字 + 下拉箭头 */
+/* 平台按钮样式 */
 .platform-btn {
-    height: var(--search-height);
-    padding: 0 8px;
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--text-primary);
-    font-family: inherit;
+    height: var(--search-height) !important;
+    min-width: 52px;
+    padding: 0 8px !important;
+    font-size: 13px !important;
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 4px;
-    border: none;
-    background: none;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: background var(--transition);
-}
-
-.platform-btn:hover {
-    background: var(--bg);
 }
 
 .platform-arrow {
-    width: 12px;
-    height: 12px;
-    color: var(--text-secondary);
+    margin-left: 4px;
+    color: var(--color-text-secondary);
 }
 
 /* 输入框容器自动撑开 */
 .search-bar .search-input {
     flex: 1;
     min-width: 0;
+}
+
+/* ---------- 让 n-input 透明，只继承外层背景 ---------- */
+.search-bar .search-input {
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
     height: var(--search-height) !important;
+    --n-padding-left: 12px;
+    --n-padding-right: 12px;
+    /* 左右缩进，占位符不再顶左 */
     border-radius: 0 !important;
+    /* 取消自身圆角，由外层统一 */
 }
 
 .search-input :deep(.n-input-wrapper) {
     background: transparent !important;
     border: none !important;
     height: 100% !important;
-    padding: 0 !important;
 }
 
+/* 内部 input 零内边距，由父级控制 */
 .search-input :deep(.n-input__input) {
     padding: 0 !important;
     font-size: var(--search-font-size) !important;
@@ -174,6 +184,7 @@ function handleClear() {
     border: none !important;
     box-shadow: none !important;
     color: inherit !important;
+    /* 使用 Naive UI 默认文字颜色 */
 }
 
 .search-input :deep(.n-input__input-el) {
@@ -181,28 +192,51 @@ function handleClear() {
 }
 
 .search-input :deep(.n-input__input-el::placeholder) {
-    color: var(--text-tertiary) !important;
-    opacity: 1;
+    color: inherit !important;
+    /* 使用 Naive UI 默认占位符颜色 */
+    opacity: 0.6;
 }
 
+/* 隐藏内置边框伪元素 */
 .search-input :deep(.n-input__border),
 .search-input :deep(.n-input__state-border) {
     display: none !important;
 }
 
+/* 清除按钮与输入文字居中对齐，沿用组件的清除交互 */
 .search-input :deep(.n-input__suffix) {
     align-items: center;
 }
 
-/* 搜索按钮：与 mockup 一致的小圆角主色按钮 */
+/* ---------- 按钮：仅控制尺寸，颜色/圆角完全由 type="primary" 决定 ---------- */
 .search-bar .search-btn {
     height: var(--search-height) !important;
-    padding: 0 20px !important;
+    padding: 0 18px !important;
     font-size: var(--search-font-size) !important;
-    border-radius: 10px !important;
+    border-radius: var(--search-radius) !important;
+    /* 与外层圆角一致 */
     display: inline-flex !important;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
 }
+
+/* 保留悬停/禁用等状态，利用 Naive UI 的默认行为，仅微调阴影 */
+.search-bar .search-btn:hover:not(:disabled) {
+    box-shadow: var(--search-shadow-focus);
+}
+
+/* 窄屏不再将操作按钮单独放一行 */
+/*
+@media (max-width: 767px) {
+    .search-bar {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .search-bar .search-btn {
+        grid-column: 1 / -1;
+    }
+}
+*/
 </style>

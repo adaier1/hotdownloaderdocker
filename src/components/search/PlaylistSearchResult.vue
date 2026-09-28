@@ -50,17 +50,15 @@ defineEmits<{
     align-items: center;
     min-width: 0;
     padding: 12px;
-    background-color: var(--surface);
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-sm);
+    background-color: var(--bg-sidebar);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
     cursor: pointer;
-    transition: all var(--transition);
+    transition: border-color 0.2s;
 }
 
 .playlist-card:hover {
-    box-shadow: var(--shadow-md);
-    border-color: var(--accent);
+    border-color: var(--color-text-secondary);
 }
 
 .playlist-card-cover {

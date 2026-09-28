@@ -89,9 +89,6 @@ function downloadSelected() {
     display: flex;
     flex-direction: column;
     gap: 20px;
-    width: 100%;
-    max-width: 800px;
-    margin: 0 auto;
     min-width: 0;
 }
 
@@ -109,11 +106,6 @@ function downloadSelected() {
     display: flex;
     align-items: center;
     gap: 20px;
-    padding: 20px;
-    background: var(--surface);
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-sm);
 }
 
 .album-header img {

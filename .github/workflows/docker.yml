@@ -1,9 +1,13 @@
 name: Docker
 
-# 构建并推送 server / web 两个镜像到 GitHub Container Registry (GHCR)
+# 构建并推送统一的单镜像到 GitHub Container Registry (GHCR)：
+#   ghcr.io/<owner>/<repo>:<tag>（小写自动归一化）
 # - push 到 main / v* tag：构建并推送
 # - pull request：仅构建校验，不推送
 # - 也可在 Actions 页面手动触发
+#
+# 当前基于上游 v2.0.0 架构：一个镜像内 Rust 服务同时托管 Web 与 API。
+# libs/um_crypto 随仓库分发（非 git 子模块），无需 submodule 步骤。
 
 on:
   push:
@@ -19,20 +23,11 @@ concurrency:
 
 jobs:
   build:
-    name: Build ${{ matrix.name }}
+    name: Build unified image
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: server
-            dockerfile: Dockerfile.server
-          - name: web
-            dockerfile: Dockerfile.web
 
     steps:
       - name: Checkout
@@ -57,7 +52,9 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ env.IMAGE_PREFIX }}-${{ matrix.name }}
+          images: ghcr.io/${{ env.IMAGE_PREFIX }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -70,9 +67,9 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: ${{ matrix.dockerfile }}
+          file: ./Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

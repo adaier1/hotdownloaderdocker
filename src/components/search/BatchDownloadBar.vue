@@ -24,9 +24,9 @@ defineEmits<{
     position: sticky;
     bottom: 0;
     z-index: 1;
-    background-color: var(--surface);
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-md);
+    background-color: var(--bg-bottom);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
     margin-top: 12px;
     padding: 12px 16px;
     display: flex;

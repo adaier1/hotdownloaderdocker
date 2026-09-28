@@ -12,10 +12,8 @@
                 </div>
             </div>
             <div class="artist-tabs">
-                <button type="button" class="artist-tab" :class="{ active: tab === 'songs' }"
-                    @click="tab = 'songs'">歌曲</button>
-                <button type="button" class="artist-tab" :class="{ active: tab === 'albums' }"
-                    @click="showAlbums">专辑</button>
+                <n-button :type="tab === 'songs' ? 'primary' : 'default'" @click="tab = 'songs'">歌曲</n-button>
+                <n-button :type="tab === 'albums' ? 'primary' : 'default'" @click="showAlbums">专辑</n-button>
             </div>
             <template v-if="tab === 'songs'">
                 <n-alert v-if="songPage.error.value" type="error" title="获取歌手歌曲失败">
@@ -134,9 +132,6 @@ function downloadSelected() {
     display: flex;
     flex-direction: column;
     gap: 20px;
-    width: 100%;
-    max-width: 800px;
-    margin: 0 auto;
     min-width: 0;
 }
 
@@ -148,11 +143,6 @@ function downloadSelected() {
     display: flex;
     align-items: center;
     gap: 20px;
-    padding: 20px;
-    background: var(--surface);
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-sm);
 }
 
 .artist-header img {
@@ -179,30 +169,7 @@ function downloadSelected() {
 
 .artist-tabs {
     display: flex;
-    gap: 4px;
-}
-
-.artist-tab {
-    padding: 6px 16px;
-    border-radius: 20px;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: all var(--transition);
-    border: none;
-    background: none;
-    font-family: inherit;
-}
-
-.artist-tab:hover {
-    color: var(--text-primary);
-}
-
-.artist-tab.active {
-    background: var(--surface);
-    color: var(--accent);
-    box-shadow: var(--shadow-sm);
+    gap: 8px;
 }
 
 .loading {

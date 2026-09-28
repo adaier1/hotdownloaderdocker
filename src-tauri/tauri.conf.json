@@ -1,0 +1,48 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "HotDownloader",
+  "version": "2.0.0",
+  "identifier": "lerd.hotdownloader",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "removeUnusedCommands": true
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "HotDownloader",
+        "width": 1600,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "shortDescription": "跨平台音乐下载器",
+    "longDescription": "基于共享 Rust 下载核心和 Vue 3 的音乐下载工具，支持 Tauri 桌面端、Android 端与 Docker/Web 部署，提供搜索、歌单导入、多任务下载、自动降级、音频解密等功能。",
+    "resources": {
+      "../LICENSE": "licenses/LICENSE",
+      "../NOTICE": "licenses/NOTICE",
+      "../THIRD_PARTY_LICENSES.txt": "licenses/THIRD_PARTY_LICENSES.txt"
+    },
+    "android": {
+      "debugApplicationIdSuffix": ".debug"
+    }
+  }
+}

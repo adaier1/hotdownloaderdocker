@@ -1,56 +1,40 @@
 # ============================================================
 # HotDownloader — NAS 部署（群晖 / 威联通 / unRAID / 通用 Linux NAS）
 #
-# 使用 GHCR 上已发布的镜像，无需本地构建。
+# 单镜像运行，无需本地构建。
+#
+# 默认账号：admin / admin123（未配置 AUTH_* 时自动使用）。
+# 首次登录后可在「设置 → 安全设置」中修改密码（保存到 /data/auth.json）。
+# 如需自定义初始凭据，可设置 AUTH_USERNAME/AUTH_PASSWORD 或 HOTDOWNLOADER_TOKEN
+# （仅在 auth.json 不存在时生效）。忘记密码时删除 ./data/auth.json 后重启即可恢复。
 #
 # 用法：
-#   1) 把本文件放到 NAS 的一个目录，例如：
-#        群晖 DSM:   /volume1/docker/hotdownloader/docker-compose.nas.yml
-#        威联通 QTS: /share/Container/hotdownloader/docker-compose.nas.yml
-#   2) 按需修改下面的下载目录 / 配置目录 / 端口（或同目录建 .env 覆盖）
+#   1) 把本文件放到 NAS 的一个目录
+#   2) 按需修改下载/配置目录、端口、凭据
 #   3) docker compose -f docker-compose.nas.yml pull
 #      docker compose -f docker-compose.nas.yml up -d
 #   4) 浏览器访问 http://<NAS_IP>:8080
 #
-# 可覆盖的环境变量（可写在同目录 .env 文件里）：
-#   IMAGE_TAG     镜像标签，默认 latest（也可 main / sha-xxxxxxx / v1.2.3）
-#   WEB_PORT      宿主机端口，默认 8080
-#   DOWNLOAD_PATH 音乐保存到 NAS 的哪个目录，默认 ./downloads
-#   DATA_PATH     配置/任务/登录态保存目录，默认 ./data
-#   TZ            时区，默认 Asia/Shanghai
-#   RUST_LOG      日志级别，默认 info
-#
-# 注意：
-#   - GHCR 上的包若为私有，需先执行：docker login ghcr.io -u <你的GitHub用户名>
-#     公开包可直接拉取。
-#   - 镜像目前仅构建 linux/amd64。x86_64 NAS 可直接用；ARM NAS 需先让 CI
-#     支持 arm64（可告诉我，我给工作流加多架构构建）。
+# 可覆盖环境变量：IMAGE_TAG / WEB_PORT / DOWNLOAD_PATH / DATA_PATH / TZ
 # ============================================================
 
 services:
-  # Rust API 服务（下载引擎、搜索/歌单/登录接口、SSE 事件推送）
-  server:
-    image: ghcr.io/adaier1/hotdownloaderdocker-server:${IMAGE_TAG:-latest}
-    restart: unless-stopped
-    environment:
-      DATA_DIR: /data
-      DOWNLOAD_DIR: /downloads
-      BIND_ADDR: 0.0.0.0:8080
-      RUST_LOG: ${RUST_LOG:-info}
-      TZ: ${TZ:-Asia/Shanghai}
-    volumes:
-      # 配置/任务/登录态（务必持久化，否则重启丢失）
-      - ${DATA_PATH:-./data}:/data
-      # 下载的音乐文件（映射到 NAS 上可直接访问的目录）
-      - ${DOWNLOAD_PATH:-./downloads}:/downloads
-
-  # Web 前端（nginx 静态托管 + /api 反向代理到 server）
-  web:
-    image: ghcr.io/adaier1/hotdownloaderdocker-web:${IMAGE_TAG:-latest}
+  hotdownloader:
+    image: ghcr.io/adaier1/hotdownloaderdocker:${IMAGE_TAG:-latest}
+    container_name: hotdownloader
     restart: unless-stopped
     ports:
-      - "${WEB_PORT:-8080}:80"
+      - "${WEB_PORT:-8080}:8787"
     environment:
+      HOTDOWNLOADER_BIND: 0.0.0.0:8787
+      HOTDOWNLOADER_DATA_DIR: /data
+      HOTDOWNLOADER_WEB_DIR: /app/dist
+      HOTDOWNLOADER_DOWNLOAD_DIR: /downloads
+      AUTH_USERNAME: ${AUTH_USERNAME:-}
+      AUTH_PASSWORD: ${AUTH_PASSWORD:-}
+      HOTDOWNLOADER_TOKEN: ${HOTDOWNLOADER_TOKEN:-}
       TZ: ${TZ:-Asia/Shanghai}
-    depends_on:
-      - server
+      RUST_LOG: ${RUST_LOG:-info}
+    volumes:
+      - ${DATA_PATH:-./data}:/data
+      - ${DOWNLOAD_PATH:-./downloads}:/downloads

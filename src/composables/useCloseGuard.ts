@@ -1,32 +1,54 @@
 import { onMounted, onUnmounted } from 'vue'
+import { useDialog } from 'naive-ui'
+import { subscribeCloseRequest } from '../api/runtimeApi'
 import { useTaskStore } from '../stores/taskStore'
 
-/**
- * Web 版关闭守卫：浏览器无法拦截关闭窗口（服务端任务独立于浏览器运行），
- * 这里在存在未完成任务时通过 `beforeunload` 提示用户。
- */
 export function useCloseGuard() {
+    const dialog = useDialog()
     const taskStore = useTaskStore()
+    let unlisten: (() => void) | undefined
+    let disposed = false
 
-    const handler = (event: BeforeUnloadEvent) => {
-        const activeTasks = taskStore.tasks.filter(
-            (t) =>
-                t.status === 'waiting' ||
-                t.status === 'downloading' ||
-                t.status === 'paused'
-        )
-        if (activeTasks.length === 0) return
+    onMounted(async () => {
+        try {
+            const cleanup = await subscribeCloseRequest(async () => {
+                const activeTasks = taskStore.tasks.filter(task =>
+                    task.status === 'waiting' ||
+                    task.status === 'downloading' ||
+                    task.status === 'paused'
+                )
 
-        // 服务端任务不会因关闭页面而中断，仅提示用户
-        event.preventDefault()
-        event.returnValue = ''
-    }
+                if (activeTasks.length === 0) {
+                    return true
+                }
 
-    onMounted(() => {
-        window.addEventListener('beforeunload', handler)
+                // 窗口确认仍由 UI 负责；是否拦截原生关闭事件由 API 层处理。
+                return new Promise<boolean>(resolve => {
+                    dialog.warning({
+                        title: '确认退出',
+                        content: `有 ${activeTasks.length} 个下载任务尚未完成，退出后任务会中断。确认退出吗？`,
+                        positiveText: '确认退出',
+                        negativeText: '取消',
+                        onPositiveClick: () => resolve(true),
+                        onNegativeClick: () => resolve(false),
+                        onClose: () => resolve(false),
+                    })
+                })
+            })
+
+            // 若组件在异步注册完成前已卸载，立即撤销迟到的监听器。
+            if (disposed) {
+                cleanup()
+            } else {
+                unlisten = cleanup
+            }
+        } catch (error) {
+            console.error('注册窗口关闭监听失败:', error)
+        }
     })
 
     onUnmounted(() => {
-        window.removeEventListener('beforeunload', handler)
+        disposed = true
+        unlisten?.()
     })
 }

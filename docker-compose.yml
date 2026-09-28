@@ -1,46 +1,53 @@
 # ============================================================
-# HotDownloader — Web 前端 + Rust API 服务（Docker Compose）
+# HotDownloader — 单镜像 / 单容器（Docker Compose）
 #
-# 架构：
-#   web    (nginx: 静态前端 + /api 反向代理)  -> 宿主机 :8080
-#   server (Rust API 服务)                    <- web 代理 /api
+# 一个镜像内由 Rust 服务同时托管 Web 页面与 API，只暴露一个端口。
 #
-# 数据持久化：
-#   downloader-data  服务端数据（设置/历史/任务）
-#   downloader-music 下载的音乐文件
+# 默认账号：admin / admin123（未在 .env 配置时自动使用）。
+# 首次登录后可在「设置 → 安全设置」中修改密码（保存到 /data/auth.json）。
+#
+# 如需自定义初始凭据，可在同目录 .env 中设置（仅在 auth.json 不存在时生效）：
+#   AUTH_USERNAME=admin
+#   AUTH_PASSWORD=你的密码
+# 或使用令牌：HOTDOWNLOADER_TOKEN=（至少 16 个字符）
+#
+# 忘记密码时：删除 ./data/auth.json 后重启，即可恢复为默认/环境变量凭据。
 #
 # 启动：docker compose up -d --build
-# 访问：http://localhost:8080
+# 访问：http://<主机IP>:8080
+#
+# 数据持久化：
+#   ./data      任务/设置/登录凭据（settings.json / tasks.json / qq-credentials.json）
+#   ./downloads 下载的音乐文件
+#
+# 可用环境变量覆盖：
+#   IMAGE_TAG     镜像标签，默认 latest
+#   WEB_PORT      宿主机端口，默认 8080
+#   DATA_PATH     数据目录（宿主机），默认 ./data
+#   DOWNLOAD_PATH 下载目录（宿主机），默认 ./downloads
+#   TZ            时区，默认 Asia/Shanghai
 # ============================================================
 
 services:
-  # Rust API 服务（下载引擎、搜索/歌单/登录接口、SSE 事件推送）
-  server:
+  hotdownloader:
     build:
       context: .
-      dockerfile: Dockerfile.server
-    restart: unless-stopped
-    environment:
-      DATA_DIR: /data
-      DOWNLOAD_DIR: /downloads
-      BIND_ADDR: 0.0.0.0:8080
-      RUST_LOG: info
-    volumes:
-      - downloader-data:/data
-      - downloader-music:/downloads
-
-  # Web 前端（nginx 静态托管 + /api 代理到 server）
-  web:
-    build:
-      context: .
-      dockerfile: Dockerfile.web
+      dockerfile: Dockerfile
+    image: ghcr.io/adaier1/hotdownloaderdocker:${IMAGE_TAG:-latest}
+    container_name: hotdownloader
     restart: unless-stopped
     ports:
-      - "8080:80"
-    depends_on:
-      - server
-
-volumes:
-  downloader-data:
-  downloader-music:
-#（注：内容由AI生成）
+      - "${WEB_PORT:-8080}:8787"
+    environment:
+      HOTDOWNLOADER_BIND: 0.0.0.0:8787
+      HOTDOWNLOADER_DATA_DIR: /data
+      HOTDOWNLOADER_WEB_DIR: /app/dist
+      HOTDOWNLOADER_DOWNLOAD_DIR: /downloads
+      AUTH_USERNAME: ${AUTH_USERNAME:-}
+      AUTH_PASSWORD: ${AUTH_PASSWORD:-}
+      HOTDOWNLOADER_TOKEN: ${HOTDOWNLOADER_TOKEN:-}
+      TZ: ${TZ:-Asia/Shanghai}
+      RUST_LOG: ${RUST_LOG:-info}
+    volumes:
+      - ${DATA_PATH:-./data}:/data
+      - ${DOWNLOAD_PATH:-./downloads}:/downloads

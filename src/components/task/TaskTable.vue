@@ -8,7 +8,7 @@
 </template>
 
 <script setup lang="ts">
-import { h, ref, onMounted } from 'vue'
+import { h, ref, onMounted, computed } from 'vue'
 import { NDataTable, NTag, NProgress, NSpace, NEllipsis } from 'naive-ui'
 import type { DataTableColumn, DataTableRowKey, TagProps } from 'naive-ui'
 import type { TaskRecord } from '../../types'
@@ -17,11 +17,10 @@ import { renderActions } from './TaskRowActions'
 import type { TaskAction, TaskActionExtra } from './TaskRowActions'
 import MobileTaskList from './MobileTaskList.vue'
 import { useNarrowLayout } from '../../composables/useNarrowLayout'
-// 平台识别工具（Web 版基于 User-Agent）
-import { platform } from '../../utils/platform'
+import { getRuntimePlatform } from '../../api/runtimeApi'
 
 // 使用 ref 存储 Android 状态，替代原先的同步 UA 判断
-// 使用 Tauri OS 插件准确识别平台，在 onMounted 中异步获取平台并更新
+// 原生平台信息由 API 层提供，在 onMounted 中异步获取并更新。
 const isAndroid = ref(false)
 
 // 响应式检测移动端：与导航共用断点，监听由 composable 随组件释放
@@ -30,8 +29,9 @@ const isMobile = useNarrowLayout()
 onMounted(async () => {
     // 异步获取当前平台，设置 isAndroid
     try {
-        const currentPlatform = await platform()
-        isAndroid.value = currentPlatform === 'android'
+        const currentPlatform = await getRuntimePlatform()
+        // Web 文件位于服务器，和 Android SAF 一样展示路径但不显示本机“打开位置”。
+        isAndroid.value = currentPlatform === 'android' || currentPlatform === 'web'
     } catch (error) {
         console.warn('获取平台信息失败，默认按非 Android 处理', error)
         isAndroid.value = false
@@ -64,6 +64,11 @@ function renderProgress(row: TaskRecord) {
         return '100%'
     }
 
+    // 中断状态由 Rust 在重启恢复时写入，恢复动作由用户主动发起。
+    if (row.status === 'interrupted') {
+        return '上次运行中断，等待恢复'
+    }
+
     // 错误状态显示错误信息
     if (row.status === 'error') {
         return row.errorMsg || ''
@@ -94,7 +99,8 @@ function renderProgress(row: TaskRecord) {
     return h('div', null, children)
 }
 
-const columns: DataTableColumn<TaskRecord>[] = [
+// Android 文件路径列依赖异步平台检测，列定义必须是计算属性才能随检测结果更新。
+const columns = computed<DataTableColumn<TaskRecord>[]>(() => [
     {
         type: 'selection',
         disabled: (row: TaskRecord) => row.status === 'downloading',
@@ -131,8 +137,9 @@ const columns: DataTableColumn<TaskRecord>[] = [
                 completed: { type: 'success', label: '已完成' },
                 error: { type: 'error', label: '错误' },
                 processing: { type: 'info', label: '处理中' },
+                interrupted: { type: 'warning', label: '已中断' },
             }
-            const s = statusMap[row.status] || { type: 'default', label: row.status }
+            const s = statusMap[row.status] || { type: 'default' as const, label: row.status }
             return h(NTag, { type: s.type, size: 'small' }, () => s.label)
         },
     },
@@ -144,8 +151,8 @@ const columns: DataTableColumn<TaskRecord>[] = [
             return renderProgress(row)
         },
     },
-    // 仅 Android 显示文件路径列
-    ...(isAndroid ? [{
+    // Android 和 Web 无法使用桌面文件管理器，因此直接展示文件路径。
+    ...(isAndroid.value ? [{
         title: '文件路径',
         key: 'filePath',
         minWidth: 200,
@@ -178,30 +185,18 @@ const columns: DataTableColumn<TaskRecord>[] = [
             )
         },
     },
-]
+])
 </script>
 
 <style scoped>
 .task-table {
     min-width: 0;
     flex-shrink: 0;
-    background: var(--surface);
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-md);
-    overflow: hidden;
-    box-shadow: var(--shadow-sm);
 }
 
-/* 表头使用浅色背景，与内容区分 */
-.task-table :deep(.n-data-table-th) {
-    background-color: var(--bg);
-    font-weight: 600;
-    color: var(--text-secondary);
-}
-
+/* 固定列布局配合表格内部横向滚动，长内容在单元格内换行或省略 */
 .task-table :deep(.n-data-table-td) {
     overflow-wrap: anywhere;
-    border-bottom: 1px solid var(--border-light);
 }
 
 .task-table :deep(.task-speed) {

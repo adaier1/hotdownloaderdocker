@@ -48,9 +48,9 @@ function handleConfirm() {
     align-items: center;
     justify-content: space-between;
     padding: 12px 16px;
-    background: var(--surface);
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-md);
+    background: var(--bg-bottom);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
     box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06);
     margin-top: 12px;
 }

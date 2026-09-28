@@ -72,24 +72,18 @@ export function renderActions(
         )
     }
 
-    // 错误：重试、删除（删除时询问是否删除未完成文件）
-    if (task.status === 'error') {
-        const isRetriable =
-            task.errorMsg !== '重试次数已用尽' &&
-            task.errorMsg !== '已无更低音质可降级'
-
+    // 错误任务提交 retry；中断任务提交 resume，由 Rust 分别执行重试或恢复。
+    // 两者都由用户显式触发，前端只展示后端返回的状态。
+    if (task.status === 'error' || task.status === 'interrupted') {
         nodes.push(
             h(
                 NButton,
                 {
                     size: 'small',
                     type: 'primary',
-                    disabled: !isRetriable,
-                    onClick: () => {
-                        if (isRetriable) emit('retry', taskId)
-                    },
+                    onClick: () => emit(task.status === 'interrupted' ? 'resume' : 'retry', taskId),
                 },
-                () => '重试'
+                () => task.status === 'interrupted' ? '恢复' : '重试'
             )
         )
         nodes.push(
@@ -98,7 +92,7 @@ export function renderActions(
                 taskId,
                 '确定删除该任务记录吗？',
                 '同时删除未下载完成的文件',
-                true // 默认勾选，因为错误文件通常无保留价值
+                task.status === 'error' // 中断任务的未完成文件通常用于续传
             )
         )
     }

@@ -4,12 +4,14 @@
 
         <!-- 批量操作栏：按当前标签页显示可用的一键操作 -->
         <div v-if="showToolbar" class="task-toolbar">
-            <!-- 错误任务较多时逐个点太麻烦，提供一键重试（并发仍由后端调度器按最大并发数控制） -->
-            <n-button v-if="activeTab === 'error' && tabCounts.error > 0" size="small" type="primary"
+            <!-- 中断恢复与错误重试按任务状态分别选择，实际规则交给 Rust。 -->
+            <n-button v-if="(activeTab === 'error' && tabCounts.error > 0) ||
+                (activeTab === 'interrupted' && tabCounts.interrupted > 0)" size="small" type="primary"
                 :loading="retryingAll" :disabled="retryingAll" @click="handleRetryAll">
-                全部重试（{{ tabCounts.error }}）
+                {{ activeTab === 'interrupted' ? '恢复全部中断任务' : '全部重试' }}
+                （{{ activeTab === 'interrupted' ? tabCounts.interrupted : tabCounts.error }}）
             </n-button>
-            <span v-if="activeTab === 'error'" class="task-toolbar-hint">
+            <span v-if="activeTab === 'error' || activeTab === 'interrupted'" class="task-toolbar-hint">
                 会依次重新入队，实际同时下载数量由“最大并发数”决定
             </span>
 
@@ -64,9 +66,10 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { downloadServerFile } from '../api/client'
+import { openFileLocation } from '../api/fileApi'
 import { NPagination, NButton, NPopconfirm, NCheckbox, NSpace, useNotification } from 'naive-ui'
 import { useTaskStore } from '../stores/taskStore'
+import { useSettingsStore } from '../stores/settingsStore'
 import { useDownloadActions } from '../composables/useDownloadActions'
 import TaskTabs from '../components/task/TaskTabs.vue'
 import TaskTable from '../components/task/TaskTable.vue'
@@ -74,6 +77,7 @@ import TaskBatchActions from '../components/task/TaskBatchActions.vue'
 import type { TaskAction, TaskActionExtra } from '../components/task/TaskRowActions'
 
 const taskStore = useTaskStore()
+const settingsStore = useSettingsStore()
 const { retryTask } = useDownloadActions()
 const notification = useNotification()
 
@@ -97,6 +101,7 @@ const tabCounts = computed(() => {
         downloading: 0,
         paused: 0,
         completed: 0,
+        interrupted: 0,
         error: 0,
     }
     for (const task of taskStore.tasks) {
@@ -105,6 +110,7 @@ const tabCounts = computed(() => {
         else if (task.status === 'downloading') counts.downloading++
         else if (task.status === 'paused') counts.paused++
         else if (task.status === 'completed') counts.completed++
+        else if (task.status === 'interrupted') counts.interrupted++
         else if (task.status === 'error') counts.error++
     }
     return counts
@@ -112,9 +118,10 @@ const tabCounts = computed(() => {
 
 const filteredTasks = computed(() => {
     const tab = activeTab.value
-    return taskStore.tasks.filter((t) => {
-        return tab === 'all' || t.status === tab;
-    });
+    return taskStore.tasks.filter((task) => {
+        if (tab === 'all') return true
+        return task.status === tab
+    })
 })
 
 const pagedTasks = computed(() => {
@@ -136,6 +143,7 @@ const canClearAll = computed(() => inClearableTab.value && tabCounts.value.total
 const showToolbar = computed(
     () =>
         (activeTab.value === 'error' && tabCounts.value.error > 0) ||
+        (activeTab.value === 'interrupted' && tabCounts.value.interrupted > 0) ||
         canClearCompleted.value ||
         canClearAll.value
 )
@@ -155,63 +163,100 @@ watch(
 )
 
 async function handleAction(action: TaskAction, taskId: string, extra?: TaskActionExtra) {
-    switch (action) {
-        case 'cancel':
-            taskStore.cancelTask(taskId, extra?.deleteFile === true)
-            break
-        case 'pause':
-            taskStore.pauseTask(taskId)
-            break
-        case 'resume':
-            taskStore.resumeTask(taskId)
-            break
-        case 'retry':
-            await retryTask(taskId)
-            break
-        case 'remove':
-            await taskStore.removeTask(taskId, extra?.deleteFile === true)
-            break
-        case 'open-location': {
-            const task = taskStore.tasks.find((t) => t.id === taskId)
-            if (task?.filePath) {
-                try {
-                    // Web 版无法打开服务端文件位置，改为通过浏览器下载该文件
-                    const fileName = task.filePath.split(/[\\/]/).pop() || ''
-                    if (fileName) downloadServerFile(fileName)
-                } catch (e) {
-                    console.error('下载文件失败:', e)
+    try {
+        // 操作统一交给 Rust 命令；列表变化由 task-updated/task-removed 事件回填。
+        switch (action) {
+            case 'cancel':
+                await taskStore.cancelTask(taskId, extra?.deleteFile === true)
+                break
+            case 'pause':
+                await taskStore.pauseTask(taskId)
+                break
+            case 'resume':
+                // 中断任务恢复会重新读取当前下载设置；先完成待写入的设置变更。
+                if (taskStore.tasks.find(task => task.id === taskId)?.status === 'interrupted') {
+                    await settingsStore.flushSettings()
                 }
+                await taskStore.resumeTask(taskId)
+                break
+            case 'retry':
+                await retryTask(taskId)
+                break
+            case 'remove': {
+                const result = await taskStore.removeTask(taskId, extra?.deleteFile === true)
+                if (result.failed) {
+                    throw new Error(result.errors.join('；'))
+                }
+                break
             }
-            break
+            case 'open-location': {
+                const task = taskStore.tasks.find((t) => t.id === taskId)
+                if (task?.filePath) {
+                    try {
+                        await openFileLocation(task.filePath)
+                    } catch (e) {
+                        console.error('打开文件位置失败:', e)
+                    }
+                }
+                break
+            }
         }
+        // 命令成功后才清除选中状态；失败时保留以便用户重试。
+        selectedRowKeys.value = selectedRowKeys.value.filter((id) => id !== taskId)
+    } catch (e: any) {
+        notification.error({
+            title: '操作失败',
+            description: e?.message || String(e),
+            duration: 4000,
+        })
     }
-    // 清除相关选中状态
-    selectedRowKeys.value = selectedRowKeys.value.filter((id) => id !== taskId)
 }
 
 async function handleBatchClear(deleteFile: boolean) {
     const ids = selectedRowKeys.value.slice()
-    if (ids.length === 0) return
-    // 一次性提交给后端批量删除，前端只落盘一次（旧实现是逐个任务 invoke + 逐个整表写盘）
-    await taskStore.removeTasks(ids, deleteFile)
-    // 在批量删除流程完成后再清空选中键，避免删除过程中选中状态提前丢失。
-    selectedRowKeys.value = []
+    if (ids.length === 0) {
+        return
+    }
+    try {
+        // 批量命令由后端逐个删除并返回准确计数，前端不直接修改持久化记录。
+        const result = await taskStore.removeTasks(ids, deleteFile)
+        if (result.failed > 0) {
+            notification.warning({
+                title: '部分任务未清除',
+                description: result.errors.join('；').slice(0, 200),
+                duration: 4000,
+            })
+        }
+        // 在批量删除流程完成后再清空选中键，避免删除过程中选中状态提前丢失。
+        selectedRowKeys.value = []
+    } catch (e: any) {
+        notification.error({
+            title: '清除任务失败',
+            description: e?.message || String(e),
+            duration: 4000,
+        })
+    }
 }
 
-/** 一键重试当前所有“错误”状态的任务 */
+/** 仅处理当前标签的任务；中断任务由用户明确发起恢复。 */
 async function handleRetryAll() {
     if (retryingAll.value) return
+    const targetStatus = activeTab.value === 'interrupted' ? 'interrupted' : 'error'
     const ids = taskStore.tasks
-        .filter((t) => t.status === 'error')
+        .filter((task) => task.status === targetStatus)
         .map((t) => t.id)
     if (ids.length === 0) return
 
     retryingAll.value = true
     try {
-        const { succeeded, failed } = await taskStore.retryTasks(ids)
+        // 批量重试读取同一份当前设置，先完成防抖写盘。
+        await settingsStore.flushSettings()
+        const { succeeded, failed } = targetStatus === 'interrupted'
+            ? await taskStore.resumeTasks(ids)
+            : await taskStore.retryTasks(ids)
         notification.success({
-            title: '批量重试',
-            description: `已重新入队 ${succeeded} 个任务${failed > 0 ? `，${failed} 个无法重试（重试次数用尽或无可降级音质）` : ''}`,
+            title: targetStatus === 'interrupted' ? '批量恢复' : '批量重试',
+            description: `已重新入队 ${succeeded} 个任务${failed > 0 ? `，${failed} 个未能入队，请查看任务状态` : ''}`,
             duration: 4000,
         })
     } catch (e: any) {
@@ -236,9 +281,11 @@ async function handleClearCompleted() {
     try {
         // 成功通知使用后端真实成功数
         const result = await taskStore.removeTasks(ids, deleteFile)
+        const fileMessage = deleteFile ? '，并删除对应文件' : ''
+        const failedMessage = result.failed > 0 ? `，${result.failed} 个失败` : ''
         notification.success({
             title: '已清除',
-            description: `已清除 ${result.succeeded} 个已下载的任务记录${deleteFile ? '，并删除对应文件' : ''}${result.failed > 0 ? `，${result.failed} 个失败` : ''}`,
+            description: `已清除 ${result.succeeded} 个已下载的任务记录${fileMessage}${failedMessage}`,
             duration: 4000,
         })
     } finally {
@@ -260,9 +307,11 @@ async function handleClearAll() {
     try {
         // 成功通知使用后端真实成功数
         const result = await taskStore.removeTasks(ids, deleteFile)
+        const fileMessage = deleteFile ? '，并删除对应文件' : ''
+        const failedMessage = result.failed > 0 ? `，${result.failed} 个失败` : ''
         notification.success({
             title: '已清除',
-            description: `已清除全部 ${result.succeeded} 个任务记录${deleteFile ? '，并删除对应文件' : ''}${result.failed > 0 ? `，${result.failed} 个失败` : ''}`,
+            description: `已清除全部 ${result.succeeded} 个任务记录${fileMessage}${failedMessage}`,
             duration: 4000,
         })
     } finally {
@@ -293,10 +342,9 @@ async function handleClearAll() {
     padding: 12px;
     margin-bottom: 12px;
     flex-wrap: wrap;
-    background: var(--surface);
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-sm);
+    background: var(--bg-sidebar);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
 }
 
 .task-toolbar-hint {

@@ -13,7 +13,10 @@
                     <span>{{ item.label }}</span>
                 </button>
             </nav>
-            <div class="sidebar-footer">v{{ version }}</div>
+            <div class="sidebar-footer">
+                <span>v{{ version }}</span>
+                <button v-if="!native" class="logout-button" type="button" @click="confirmLogout">退出登录</button>
+            </div>
         </aside>
 
         <!-- 内容区域 -->
@@ -42,10 +45,12 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { useNotification } from 'naive-ui'
+import { useDialog, useNotification } from 'naive-ui'
 import NavIcon from './NavIcon.vue'
 import { useCloseGuard } from '../composables/useCloseGuard'
 import { useNarrowLayout } from '../composables/useNarrowLayout'
+import { isNativeRuntime } from '../api/runtimeApi'
+import { logoutWeb } from '../api/webClient'
 
 const router = useRouter()
 const route = useRoute()
@@ -79,6 +84,20 @@ useCloseGuard()
 // 挂载通知实例到全局，供 store 使用
 const notification = useNotification()
 window.$notify = notification
+
+// Web 版登录退出（桌面端不经过 HTTP 认证）
+const native = isNativeRuntime()
+const dialog = useDialog()
+
+function confirmLogout() {
+    dialog.warning({
+        title: '退出登录',
+        content: '确定要退出当前登录状态吗？退出后需重新输入密码。',
+        positiveText: '退出',
+        negativeText: '取消',
+        onPositiveClick: () => logoutWeb(),
+    })
+}
 
 // 移动端响应式布局状态；公共方法统一断点，并在组件销毁时清理监听。
 const isNarrow = useNarrowLayout()
@@ -228,6 +247,27 @@ function handleMenuClick(key: string) {
     padding: 12px 8px 0;
     font-size: 11px;
     color: var(--text-tertiary);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.logout-button {
+    border: none;
+    background: none;
+    padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    font: inherit;
+    cursor: pointer;
+    transition: all var(--transition);
+    white-space: nowrap;
+}
+
+.logout-button:hover {
+    background: rgba(0, 0, 0, 0.04);
+    color: var(--danger);
 }
 
 /* 主内容区背景 */
