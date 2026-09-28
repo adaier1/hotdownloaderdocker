@@ -31,7 +31,7 @@ Rust 服务同时托管 Web 页面与 API，浏览器只访问一个端口，无
         │                                  │
         │  共享核心（crates/hotdownloader-core）│
         │    · 下载引擎（并发/断点续传/降级）  │
-        │    · 平台实现（QQ 音乐、酷我）       │
+        │    · 平台实现       │
         └──────────────────────────────────┘
                       │
                       ▼
@@ -39,7 +39,7 @@ Rust 服务同时托管 Web 页面与 API，浏览器只访问一个端口，无
 ```
 
 - **后端**：`crates/hotdownloader-core`（共享核心）+ `crates/hotdownloader-server`（HTTP/SSE 服务），与上游 v2.0.0 保持一致。
-- **前端**：上游 v2.0.0 界面，叠加本仓库的 Apple 风格浅色主题（`src/style.css`、`src/config/theme.ts`、`src/composables/useAppTheme.ts`、`src/components/NavLayout.vue`）。
+- **前端**：上游 v2.0.0 界面，风格浅色主题（`src/style.css`、`src/config/theme.ts`、`src/composables/useAppTheme.ts`、`src/components/NavLayout.vue`）。
 - **访问认证**：对外监听时必须设置用户名密码或令牌（见下）。
 
 ---
