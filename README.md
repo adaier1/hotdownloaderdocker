@@ -1,7 +1,7 @@
 # 🎵 HotDownloader-docker
 
-> 基于上游 [lerdb/HotDownloader](https://github.com/lerdb/HotDownloader) **v2.0.0** 的 Web/Docker 单镜像版本。
-> 保留上游共享 Rust 下载核心与 Vue 3 前端，并叠加本仓库的 **Apple 风格浅色 UI** 与 **单镜像 Docker 部署**。
+> 基于原项目 [lerdb/HotDownloader](https://github.com/lerdb/HotDownloader)
+> 保留上游共享 Rust 下载核心与 Vue 3 前端，**Docker 部署**。
 
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)
 ![Rust](https://img.shields.io/badge/rust-1.77.2+-orange.svg)
@@ -43,6 +43,10 @@ Rust 服务同时托管 Web 页面与 API，浏览器只访问一个端口，无
 - **访问认证**：对外监听时必须设置用户名密码或令牌（见下）。
 
 ---
+| 首页 | 设置 | MCP | 通知 |
+| --- | --- | --- | --- |
+|<img src="ScreenShot_2026-09-26_200452_737.png" width="100%">|<img src="ScreenShot_2026-09-28_201851_849.png" width="100%">|<img src="ScreenShot_2026-09-28_201951_508.png" width="100%">|<img src="ScreenShot_2026-09-28_202004_470.png" width="100%">|
+---
 
 ## 🚀 Docker 部署（推荐）
 
@@ -60,43 +64,38 @@ cd hotdownloaderdocker
 **默认账号：`admin` / `admin123`**。登录后可在 **设置 → 安全设置 → 修改密码** 中修改，
 结果保存到 `/data/auth.json`，重启后仍然有效。
 
-如需自定义初始凭据，可在仓库根目录创建 `.env`（仅在 `auth.json` 不存在时生效）：
-
-```dotenv
-AUTH_USERNAME=admin
-AUTH_PASSWORD=改成你的密码
-# 或使用令牌（至少 16 个字符）：
-# HOTDOWNLOADER_TOKEN=<至少 16 个字符的令牌>
-```
-
-> 忘记密码：删除 `./data/auth.json` 后重启容器，即可恢复默认/环境变量凭据。
-
-### 3. 构建并启动
+### 3. Compose
 
 ```bash
-docker compose up -d --build
+services:
+  hotdownloader:
+    image: ghcr.io/adaier1/hotdownloaderdocker:latest
+    container_name: hotdownloader
+    restart: unless-stopped
+
+    ports:
+      - "8080:8787"
+
+    environment:
+      HOTDOWNLOADER_BIND: "0.0.0.0:8787"
+      HOTDOWNLOADER_DATA_DIR: "/data"
+      HOTDOWNLOADER_WEB_DIR: "/app/dist"
+      HOTDOWNLOADER_DOWNLOAD_DIR: "/downloads"
+
+      AUTH_USERNAME: "admin"
+      AUTH_PASSWORD: "admin123"
+
+      TZ: "Asia/Shanghai"
+      RUST_LOG: "info"
+
+    volumes:
+      - ./data:/data
+      - ./downloads:/downloads
 ```
 
 ### 4. 访问
 
-打开浏览器访问 **http://<主机IP>:8080**，使用默认账号 **`admin` / `admin123`**（或你自定义的凭据）登录。
-
-### 5. 常用命令
-
-```bash
-docker compose ps                  # 查看状态
-docker compose logs -f hotdownloader
-docker compose down                # 停止（数据保留在 ./data ./downloads）
-docker compose up -d --build       # 更新代码后重新构建
-```
-
-### 使用已发布镜像（无需本地构建）
-
-```bash
-docker compose -f docker-compose.prod.yml up -d
-```
-
-镜像：`ghcr.io/adaier1/hotdownloaderdocker:latest`。NAS 用户可用 `docker-compose.nas.yml`。
+打开浏览器访问 **http://<主机IP>:8080**，使用默认账号 **`admin` / `admin123`**
 
 ### 环境变量
 
@@ -186,9 +185,6 @@ docker compose -f docker-compose.prod.yml up -d
 获取 FSKEY：飞书群 → 设置 → 群机器人 → 添加「自定义机器人」，Webhook 形如
 `https://open.feishu.cn/open-apis/bot/v2/hook/<FSKEY>`，其中 `<FSKEY>` 即所需值。
 
-推送报文与青龙 `notify.py` 一致：`POST .../hook/<FSKEY>`，`{"msg_type":"text","content":{"text":"标题\n\n内容"}}`。
-配置保存在 `/data/notify.json`。
-
 ---
 
 ## 🛠️ 本地开发
@@ -207,13 +203,6 @@ npm run dev
 
 ---
 
-## ⚠️ 与上游的差异
-
-- **Docker 层**：统一镜像名 `ghcr.io/adaier1/hotdownloaderdocker`，`docker-compose*.yml`、GHCR 工作流为本仓库定制。
-- **UI**：叠加 Apple 风格浅色主题（上游为绿系深浅色主题）。
-- 核心 Rust 代码（`crates/`）与上游 v2.0.0 保持一致，便于后续 `git fetch upstream` 同步。
-
----
 
 ## 📄 许可证
 
