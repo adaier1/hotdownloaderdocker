@@ -1,7 +1,13 @@
 <template>
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
     stroke-linejoin="round" aria-hidden="true">
-    <template v-if="name === 'search'">
+    <template v-if="name === 'dashboard'">
+      <rect x="3" y="3" width="7.5" height="7.5" rx="1.5" />
+      <rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5" />
+      <rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5" />
+      <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5" />
+    </template>
+    <template v-else-if="name === 'search'">
       <circle cx="11" cy="11" r="8" />
       <path d="m21 21-4.3-4.3" />
     </template>
@@ -15,6 +21,9 @@
       <polyline points="7 10 12 15 17 10" />
       <line x1="12" y1="15" x2="12" y2="3" />
     </template>
+    <template v-else-if="name === 'library'">
+      <path d="M4 6a2 2 0 0 1 2-2h4.2a2 2 0 0 1 1.4.6L13 6h5a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6z" />
+    </template>
     <template v-else-if="name === 'settings'">
       <circle cx="12" cy="12" r="3" />
       <path
@@ -24,5 +33,5 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{ name: 'search' | 'playlist' | 'task' | 'settings' }>()
+defineProps<{ name: 'dashboard' | 'search' | 'playlist' | 'task' | 'library' | 'settings' }>()
 </script>

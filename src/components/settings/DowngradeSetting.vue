@@ -1,36 +1,26 @@
 <template>
-    <template v-if="isNarrow">
-        <!-- 移动端：开关保持行内布局，排序入口单独占一行，避免窄屏拥挤。 -->
-        <div class="setting-row">
-            <span class="setting-label">自动降级</span>
+    <n-form-item label="自动降级">
+        <div class="downgrade-field">
             <n-switch :value="settingsStore.settings.autoDowngrade"
                 @update:value="(val) => (settingsStore.settings.autoDowngrade = val)" />
-        </div>
-    </template>
-    <template v-else>
-        <n-form-item label="自动降级">
-            <n-switch :value="settingsStore.settings.autoDowngrade"
-                @update:value="(val) => (settingsStore.settings.autoDowngrade = val)" />
-        </n-form-item>
-    </template>
-
-    <n-form-item label="降级顺序">
-        <div class="downgrade-setting">
-            <div class="downgrade-summary" :title="downgradeOrderText" :aria-label="`当前降级顺序：${downgradeOrderText}`">
-                {{ downgradeOrderText }}
-            </div>
-            <p class="downgrade-help">
+            <span class="set-hint mono">{{ downgradeOrderText }}</span>
+            <span class="set-hint">
                 <template v-if="settingsStore.settings.autoDowngrade">
-                    目标音质不可用时，将从它的下一项开始，按从上到下的顺序依次尝试。
+                    目标音质不可用时，将从它的下一项开始，按从上到下的顺序依次尝试
                 </template>
                 <template v-else>
-                    当前顺序已保留，开启自动降级后可编辑并生效。
+                    当前顺序已保留，开启自动降级后可编辑并生效
                 </template>
-            </p>
-            <n-button size="small" :disabled="!settingsStore.settings.autoDowngrade" @click="openEditor">
-                自定义顺序
-            </n-button>
+            </span>
         </div>
+    </n-form-item>
+
+    <n-form-item label="自定顺序">
+        <button type="button" class="set-select" :disabled="!settingsStore.settings.autoDowngrade"
+            @click="openEditor">
+            <span>自定顺序</span>
+            <span class="caret">▾</span>
+        </button>
     </n-form-item>
 
     <!--
@@ -81,7 +71,6 @@
 </template>
 
 <script setup lang="ts">
-import { useNarrowLayout } from '../../composables/useNarrowLayout'
 import { computed, ref } from 'vue'
 import { NButton, NFormItem, NModal, NSwitch, NTag } from 'naive-ui'
 import { useSettingsStore } from '../../stores/settingsStore'
@@ -142,9 +131,6 @@ function saveOrder() {
     settingsStore.settings.qualityDowngradeOrder = [...draftOrder.value]
     showEditor.value = false
 }
-
-// 移动端判断
-const isNarrow = useNarrowLayout()
 </script>
 
 <style scoped>
@@ -159,32 +145,19 @@ const isNarrow = useNarrowLayout()
     overflow-y: auto;
 }
 
-.downgrade-setting {
-    min-width: 0;
+.downgrade-field {
     width: 100%;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
 }
 
-.downgrade-summary {
-    max-width: 100%;
-    overflow: hidden;
-    color: var(--color-text);
-    font-size: 13px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.downgrade-help,
 .editor-help {
     color: var(--color-text-secondary);
     font-size: 12px;
     line-height: 1.5;
-}
-
-.downgrade-help {
-    margin: 4px 0 8px;
-}
-
-.editor-help {
     margin-bottom: 12px;
 }
 
@@ -241,19 +214,6 @@ const isNarrow = useNarrowLayout()
     justify-content: space-between;
     gap: 16px;
     flex-wrap: wrap;
-}
-
-/* 移动端行内布局 */
-.setting-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
-}
-
-.setting-label {
-    font-size: 14px;
-    color: var(--n-text-color);
 }
 
 .sr-only {

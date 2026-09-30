@@ -196,15 +196,16 @@ export default defineComponent({
 
 .task-card {
     min-width: 0;
-    background: var(--bg-sidebar);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    padding: 14px;
     transition: border-color 0.2s;
 }
 
 .task-card.is-selected {
-    border-color: var(--color-text-secondary);
+    border-color: var(--accent);
 }
 
 .task-card-header {

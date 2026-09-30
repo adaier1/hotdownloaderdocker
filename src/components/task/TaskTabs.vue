@@ -1,22 +1,13 @@
 <template>
-    <n-tabs :value="activeTab" @update:value="$emit('update:activeTab', $event)"
-        :type="isNarrow ? 'line' : 'segment'" size="medium">
-        <n-tab-pane name="all" :tab="`全部 (${counts.total})`" />
-        <n-tab-pane name="waiting" :tab="`等待中 (${counts.waiting})`" />
-        <n-tab-pane name="downloading" :tab="`下载中 (${counts.downloading})`" />
-        <n-tab-pane name="paused" :tab="`暂停 (${counts.paused})`" />
-        <n-tab-pane name="completed" :tab="`已完成 (${counts.completed})`" />
-        <n-tab-pane name="interrupted" :tab="`已中断 (${counts.interrupted})`" />
-        <n-tab-pane name="error" :tab="`错误 (${counts.error})`" />
-    </n-tabs>
+    <div class="md-pills task-tabs">
+        <button v-for="tab in TABS" :key="tab.key" type="button" class="md-pill"
+            :class="{ active: activeTab === tab.key }" @click="$emit('update:activeTab', tab.key)">
+            {{ tab.label }}（{{ countOf(tab.countKey) }}）
+        </button>
+    </div>
 </template>
 
 <script setup lang="ts">
-import { NTabs, NTabPane } from 'naive-ui'
-import { useNarrowLayout } from '../../composables/useNarrowLayout'
-
-const isNarrow = useNarrowLayout()
-
 export interface TabCounts {
     total: number
     waiting: number
@@ -27,7 +18,7 @@ export interface TabCounts {
     error: number
 }
 
-defineProps<{
+const props = defineProps<{
     activeTab: string
     counts: TabCounts
 }>()
@@ -35,4 +26,30 @@ defineProps<{
 defineEmits<{
     (e: 'update:activeTab', value: string): void
 }>()
+
+const TABS: Array<{ key: string; label: string; countKey: keyof TabCounts }> = [
+    { key: 'all', label: '全部', countKey: 'total' },
+    { key: 'waiting', label: '等待中', countKey: 'waiting' },
+    { key: 'downloading', label: '下载中', countKey: 'downloading' },
+    { key: 'paused', label: '暂停', countKey: 'paused' },
+    { key: 'completed', label: '已完成', countKey: 'completed' },
+    { key: 'interrupted', label: '已中断', countKey: 'interrupted' },
+    { key: 'error', label: '错误', countKey: 'error' },
+]
+
+function countOf(key: keyof TabCounts): number {
+    return props.counts[key] ?? 0
+}
 </script>
+
+<style scoped>
+.task-tabs {
+    margin-bottom: 16px;
+}
+
+@media (max-width: 767px) {
+    .md-pill {
+        min-height: 44px;
+    }
+}
+</style>

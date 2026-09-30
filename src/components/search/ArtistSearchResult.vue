@@ -41,7 +41,7 @@ defineEmits<{
 .artist-card-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 14px;
 }
 
 .artist-card {
@@ -50,24 +50,25 @@ defineEmits<{
     color: inherit;
     font: inherit;
     display: flex;
-    gap: 12px;
+    gap: 16px;
     align-items: center;
     min-width: 0;
-    padding: 12px;
-    background-color: var(--bg-sidebar);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
+    padding: 16px 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
     cursor: pointer;
-    transition: border-color 0.2s;
+    transition: border-color var(--transition);
 }
 
 .artist-card:hover {
-    border-color: var(--color-text-secondary);
+    border-color: var(--accent);
 }
 
 .artist-card-cover {
-    width: 60px;
-    height: 60px;
+    width: 56px;
+    height: 56px;
     border-radius: 50%;
     object-fit: cover;
     flex-shrink: 0;
@@ -79,25 +80,26 @@ defineEmits<{
 }
 
 .artist-card-name {
-    font-size: 15px;
+    font-size: 15.5px;
     font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    color: var(--text-primary);
 }
 
 .artist-card-creator {
     overflow-wrap: anywhere;
-    color: var(--color-text-secondary);
+    color: var(--text-secondary);
     font-size: 13px;
-    margin-top: 2px;
+    margin-top: 4px;
 }
 
 .artist-card-meta {
     overflow-wrap: anywhere;
-    color: var(--color-text-secondary);
-    font-size: 12px;
-    margin-top: 2px;
+    color: var(--text-tertiary);
+    font-size: 12.5px;
+    margin-top: 3px;
 }
 
 .empty-result {

@@ -41,30 +41,31 @@ defineEmits<{
 .playlist-card-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 14px;
 }
 
 .playlist-card {
     display: flex;
-    gap: 12px;
+    gap: 16px;
     align-items: center;
     min-width: 0;
-    padding: 12px;
-    background-color: var(--bg-sidebar);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
+    padding: 16px 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
     cursor: pointer;
-    transition: border-color 0.2s;
+    transition: border-color var(--transition);
 }
 
 .playlist-card:hover {
-    border-color: var(--color-text-secondary);
+    border-color: var(--accent);
 }
 
 .playlist-card-cover {
-    width: 60px;
-    height: 60px;
-    border-radius: 6px;
+    width: 56px;
+    height: 56px;
+    border-radius: 9px;
     object-fit: cover;
     flex-shrink: 0;
 }
@@ -75,25 +76,26 @@ defineEmits<{
 }
 
 .playlist-card-name {
-    font-size: 15px;
+    font-size: 15.5px;
     font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    color: var(--text-primary);
 }
 
 .playlist-card-creator {
     overflow-wrap: anywhere;
-    color: var(--color-text-secondary);
+    color: var(--text-secondary);
     font-size: 13px;
-    margin-top: 2px;
+    margin-top: 4px;
 }
 
 .playlist-card-meta {
     overflow-wrap: anywhere;
-    color: var(--color-text-secondary);
-    font-size: 12px;
-    margin-top: 2px;
+    color: var(--text-tertiary);
+    font-size: 12.5px;
+    margin-top: 3px;
 }
 
 .empty-result {

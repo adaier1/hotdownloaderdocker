@@ -2,19 +2,15 @@ name: Docker
 
 # 构建并推送统一的单镜像到 GitHub Container Registry (GHCR)：
 #   ghcr.io/<owner>/<repo>:<tag>（小写自动归一化）
-# - push 到 main / v* tag：构建并推送
-# - pull request：仅构建校验，不推送
-# - 也可在 Actions 页面手动触发
+# - push v* tag：构建并推送
+# - Actions 页面手动触发：构建并推送
 #
 # 当前基于上游 v2.0.0 架构：一个镜像内 Rust 服务同时托管 Web 与 API。
 # libs/um_crypto 随仓库分发（非 git 子模块），无需 submodule 步骤。
 
 on:
   push:
-    branches: [main]
     tags: ["v*"]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:

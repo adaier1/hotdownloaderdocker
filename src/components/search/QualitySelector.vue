@@ -1,7 +1,7 @@
 <template>
     <div class="quality-selector">
         <n-button v-for="q in sortedQualities" :key="q.quality" :type="selected === q.quality ? 'primary' : 'default'"
-            block class="quality-btn" @click="selected = q.quality">
+            block class="quality-btn" :class="{ 'is-selected': selected === q.quality }" @click="selected = q.quality">
             <div class="quality-name">{{ q.quality }}</div>
             <div class="quality-size">{{ formatSize(q.size) }}</div>
         </n-button>
@@ -80,5 +80,10 @@ defineExpose({ selected })
     font-size: 12px;
     color: var(--color-text-secondary);
     line-height: 1.4;
+}
+
+/* 选中项背景为蓝色，文件大小跟随音质名称一起变白，保证对比度 */
+.quality-btn.is-selected .quality-size {
+    color: #fff;
 }
 </style>

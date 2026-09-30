@@ -24,9 +24,9 @@ defineEmits<{
     position: sticky;
     bottom: 0;
     z-index: 1;
-    background-color: var(--bg-bottom);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
     margin-top: 12px;
     padding: 12px 16px;
     display: flex;
@@ -34,12 +34,12 @@ defineEmits<{
     gap: 8px 16px;
     align-items: center;
     justify-content: space-between;
-    box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06);
+    box-shadow: 0 -2px 8px rgba(20, 30, 60, 0.06);
 }
 
 .selected-text {
     font-weight: 500;
-    color: var(--color-text);
+    color: var(--text-primary);
 }
 
 .batch-download-btn {

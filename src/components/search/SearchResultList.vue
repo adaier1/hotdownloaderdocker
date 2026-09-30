@@ -100,7 +100,7 @@ function toggleSelect(songMid: string, selected: boolean) {
 .song-items {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 14px;
 }
 
 .empty-result {

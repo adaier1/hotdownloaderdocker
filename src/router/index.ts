@@ -3,7 +3,13 @@ import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-rou
 const routes: RouteRecordRaw[] = [
     {
         path: '/',
-        redirect: '/search',
+        redirect: '/dashboard',
+    },
+    {
+        path: '/dashboard',
+        name: 'dashboard',
+        component: () => import('../views/DashboardView.vue'),
+        meta: { keepAlive: true },
     },
     {
         path: '/search',
@@ -31,6 +37,12 @@ const routes: RouteRecordRaw[] = [
         path: '/task',
         name: 'task',
         component: () => import('../views/TaskView.vue'),
+        meta: { keepAlive: true },
+    },
+    {
+        path: '/library',
+        name: 'library',
+        component: () => import('../views/LibraryView.vue'),
         meta: { keepAlive: true },
     },
     {

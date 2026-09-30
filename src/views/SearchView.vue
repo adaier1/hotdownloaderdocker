@@ -7,15 +7,11 @@
                 @search="handleSearch" />
 
             <!-- 搜索类型切换按钮 -->
-            <div class="type-switch">
-                <n-button quaternary :type="searchType === 'song' ? 'primary' : 'default'"
-                    @click="switchSearchType('song')">歌曲</n-button>
-                <n-button quaternary :type="searchType === 'artist' ? 'primary' : 'default'"
-                    @click="switchSearchType('artist')">歌手</n-button>
-                <n-button quaternary :type="searchType === 'album' ? 'primary' : 'default'"
-                    @click="switchSearchType('album')">专辑</n-button>
-                <n-button quaternary :type="searchType === 'playlist' ? 'primary' : 'default'"
-                    @click="switchSearchType('playlist')">歌单</n-button>
+            <div class="md-tabs type-switch">
+                <button v-for="tab in SEARCH_TABS" :key="tab.key" type="button" class="md-tab"
+                    :class="{ active: searchType === tab.key }" @click="switchSearchType(tab.key)">
+                    {{ tab.label }}
+                </button>
             </div>
         </div>
 
@@ -114,6 +110,14 @@ const currentPlatform = ref(DEFAULT_PLATFORM)
 type SearchType = 'song' | 'artist' | 'album' | 'playlist'
 const searchType = ref<SearchType>('song')
 const pageMode = ref<'idle' | 'suggestions' | 'results'>('idle')
+
+// 搜索类型胶囊标签；与 MusicDock 的 tabs 版式共用 .md-tab 样式。
+const SEARCH_TABS: Array<{ key: SearchType; label: string }> = [
+    { key: 'song', label: '歌曲' },
+    { key: 'artist', label: '歌手' },
+    { key: 'album', label: '专辑' },
+    { key: 'playlist', label: '歌单' },
+]
 
 // 使用歌曲搜索 composable，解构出状态和方法
 const {
@@ -393,9 +397,7 @@ function onBatchDownload() {
 }
 
 .type-switch {
-    display: flex;
     gap: 8px;
-    flex-wrap: wrap;
 }
 
 /* 搜索栏和类型切换的间距由 search-header 统一控制 */
@@ -404,8 +406,9 @@ function onBatchDownload() {
 }
 
 @media (max-width: 767px) {
-    .type-switch .n-button {
+    .type-switch .md-tab {
         min-height: 44px;
+        padding: 8px 18px;
     }
 }
 

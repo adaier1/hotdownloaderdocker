@@ -44,6 +44,23 @@ pub fn create_directory(path: String) -> Result<(), String> {
     fs::create_dir_all(&path).map_err(|e| e.to_string())
 }
 
+/// 扫描下载目录中的音频文件，供曲库页面展示。
+#[command]
+pub fn list_audio_files(
+    directory: String,
+) -> Result<Vec<hotdownloader_core::library::AudioFileEntry>, String> {
+    hotdownloader_core::library::list_audio_files(&directory)
+}
+
+/// 删除下载目录中指定的音频文件，供曲库页面使用。
+#[command]
+pub fn delete_audio_files(
+    directory: String,
+    paths: Vec<String>,
+) -> Result<hotdownloader_core::library::DeleteResult, String> {
+    hotdownloader_core::library::delete_audio_files(&directory, &paths)
+}
+
 /// 打开文件所在目录并选中文件（Android 上打开文件本身）
 #[command]
 pub fn open_file_location(app: AppHandle, path: String) -> Result<(), String> {

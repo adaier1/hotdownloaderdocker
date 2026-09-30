@@ -128,9 +128,11 @@ const currentRoute = computed(() => {
 })
 
 const navItems = [
+    { key: '/dashboard', label: '仪表盘', icon: 'dashboard' as const },
     { key: '/search', label: '搜索', icon: 'search' as const },
     { key: '/playlist', label: '歌单', icon: 'playlist' as const },
-    { key: '/task', label: '任务', icon: 'task' as const },
+    { key: '/task', label: '下载任务', icon: 'task' as const },
+    { key: '/library', label: '曲库', icon: 'library' as const },
     { key: '/settings', label: '设置', icon: 'settings' as const },
 ]
 
@@ -157,7 +159,7 @@ function handleMenuClick(key: string) {
     flex-direction: column;
 }
 
-/* 侧边栏：毛玻璃背景 */
+/* 侧边栏 */
 .sidebar {
     width: 220px;
     flex-shrink: 0;
@@ -165,9 +167,7 @@ function handleMenuClick(key: string) {
     flex-direction: column;
     border-right: 1px solid var(--border-light);
     padding: 20px 12px;
-    background-color: rgba(255, 255, 255, 0.72);
-    backdrop-filter: saturate(180%) blur(20px);
-    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    background-color: var(--surface);
     overflow-y: auto;
 
     /* 横屏时让导航避开状态栏和侧边安全区。 */
@@ -211,15 +211,15 @@ function handleMenuClick(key: string) {
 .nav-item {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 8px 12px;
-    border-radius: var(--radius-sm);
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 9px;
     cursor: pointer;
     color: var(--text-secondary);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 500;
     font-family: inherit;
-    transition: all var(--transition);
+    transition: background var(--transition), color var(--transition);
     border: none;
     background: none;
     width: 100%;
@@ -227,13 +227,14 @@ function handleMenuClick(key: string) {
 }
 
 .nav-item:hover {
-    background: rgba(0, 0, 0, 0.04);
+    background: #f2f3f5;
     color: var(--text-primary);
 }
 
 .nav-item.active {
-    background: var(--accent);
-    color: #fff;
+    background: var(--accent-light);
+    color: var(--accent);
+    font-weight: 600;
 }
 
 .nav-item-icon {

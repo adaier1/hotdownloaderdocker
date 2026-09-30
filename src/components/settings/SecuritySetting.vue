@@ -1,12 +1,17 @@
 <template>
-    <div class="setting-row">
-        <div class="setting-label">访问密码</div>
-        <n-button size="small" @click="show = true">修改密码</n-button>
-    </div>
-    <div class="setting-row">
-        <div class="setting-label">登录状态</div>
-        <n-button size="small" @click="confirmLogout">退出登录</n-button>
-    </div>
+    <n-form-item label="修改密码">
+        <div class="security-actions">
+            <button type="button" class="btn-ghost" @click="show = true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                    stroke-linejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" />
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+                修改密码
+            </button>
+            <button type="button" class="btn-ghost danger" @click="confirmLogout">退出登录</button>
+        </div>
+    </n-form-item>
 
     <n-modal v-model:show="show" preset="card" title="修改访问密码" :style="{ width: 'min(420px, 92vw)' }">
             <n-form :show-feedback="false">
@@ -93,6 +98,13 @@ async function submit() {
 </script>
 
 <style scoped>
+.security-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
 .modal-actions {
     display: flex;
     justify-content: flex-end;

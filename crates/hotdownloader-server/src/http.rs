@@ -56,6 +56,12 @@ struct ChangePasswordRequest {
     new_password: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeleteLibraryRequest {
+    paths: Vec<String>,
+}
+
 pub(crate) fn json_response(status: StatusCode, value: Value) -> Response<HttpBody> {
     let bytes = serde_json::to_vec(&value).unwrap_or_else(|_| b"{}".to_vec());
     Response::builder()
@@ -307,6 +313,31 @@ pub async fn handle(
             StatusCode::OK,
             json!(runtime.environment.default_download_dir()),
         ),
+        // 曲库内容来自下载目录中的实际音频文件，而不是任务记录。
+        (Method::GET, "/api/library") => {
+            let directory = runtime.environment.default_download_dir();
+            match hotdownloader_core::library::list_audio_files(directory) {
+                Ok(files) => json_response(
+                    StatusCode::OK,
+                    json!({ "directory": directory, "files": files }),
+                ),
+                Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
+            }
+        }
+        // 删除曲库文件：只允许删除下载目录内的音频文件。
+        (Method::POST, "/api/library/delete") => match read_json(request).await {
+            Ok(value) => match serde_json::from_value::<DeleteLibraryRequest>(value) {
+                Ok(input) => match hotdownloader_core::library::delete_audio_files(
+                    runtime.environment.default_download_dir(),
+                    &input.paths,
+                ) {
+                    Ok(result) => json_response(StatusCode::OK, json!(result)),
+                    Err(error) => error_response(StatusCode::BAD_REQUEST, error),
+                },
+                Err(error) => error_response(StatusCode::BAD_REQUEST, error.to_string()),
+            },
+            Err(error) => error_response(StatusCode::BAD_REQUEST, error),
+        },
         (Method::PATCH, "/api/settings") => match read_json(request).await {
             Ok(value) => match serde_json::from_value::<SettingsPatch>(value) {
                 Ok(patch) => match runtime.patch_settings(patch) {

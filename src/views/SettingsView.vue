@@ -14,49 +14,49 @@
         <!-- 移动端：分组纵向布局；桌面端：原有左右分栏表单。
              共用组件实例，缩放窗口时保留登录输入和弹窗中的编辑草稿。 -->
         <!-- 账号设置：独立分类，位于基本设置上方，增加底部间距避免与下方黏连 -->
-        <div class="settings-section account-section">
-            <h2 class="section-title">账号设置</h2>
+        <div class="set-card account-section">
+            <div class="set-card-title">账号设置</div>
             <n-form :label-placement="isNarrow ? 'top' : 'left'">
                 <LoginSetting />
             </n-form>
         </div>
 
         <!-- 安全设置：仅 Web 版支持修改访问密码（桌面端不经过 HTTP 认证） -->
-        <div v-if="!native" class="settings-section">
-            <h2 class="section-title">安全设置</h2>
-            <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 180">
+        <div v-if="!native" class="set-card">
+            <div class="set-card-title">安全设置</div>
+            <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 200">
                 <SecuritySetting />
             </n-form>
         </div>
 
         <!-- MCP 接入：仅 Web 版提供，展示带密钥的接入链接 -->
-        <div v-if="!native" class="settings-section">
-            <h2 class="section-title">MCP 接入</h2>
-            <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 180">
+        <div v-if="!native" class="set-card">
+            <div class="set-card-title">MCP 接入</div>
+            <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 200">
                 <McpSetting />
             </n-form>
         </div>
 
         <!-- 通知设置：飞书机器人推送（仅 Web 版） -->
-        <div v-if="!native" class="settings-section">
-            <h2 class="section-title">通知设置</h2>
-            <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 180">
+        <div v-if="!native" class="set-card">
+            <div class="set-card-title">通知设置</div>
+            <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 200">
                 <FeishuNotifySetting />
             </n-form>
         </div>
 
-        <div class="settings-section">
-            <h2 class="section-title">基本设置</h2>
-            <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 180">
+        <div class="set-card">
+            <div class="set-card-title">基本设置</div>
+            <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 200">
                 <QualitySetting />
                 <DowngradeSetting />
                 <ClearHistoryButton />
             </n-form>
         </div>
 
-        <div class="settings-section">
-            <h2 class="section-title">下载设置</h2>
-            <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 180">
+        <div class="set-card">
+            <div class="set-card-title">下载设置</div>
+            <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 200">
                 <DirectorySetting />
                 <NamingTemplate />
                 <ArtistSeparator />
@@ -142,7 +142,7 @@ function goAbout() {
 <style scoped>
 .settings-view {
     width: 100%;
-    max-width: 800px;
+    max-width: none;
     min-width: 0;
     /* 让设置页占满父容器高度，使用 flex 列布局 */
     display: flex;
@@ -167,28 +167,26 @@ function goAbout() {
     max-width: none;
 }
 
-.settings-section {
-    margin-bottom: 16px;
-    padding: 20px;
-    min-width: 0;
-    background: var(--bg-sidebar);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-}
-
 .account-section {
-    margin-bottom: 20px;
+    margin-bottom: 16px;
 }
 
-.settings-section+.settings-section {
-    padding-top: 20px;
+/* 将 Naive 表单行渲染为 MusicDock 的 set-row 版式 */
+.settings-view :deep(.n-form-item) {
+    padding: 14px 0;
+    margin-bottom: 0;
+    border-bottom: 1px dashed var(--border-light);
 }
 
-.section-title {
-    font-size: 16px;
-    font-weight: 600;
-    margin-bottom: 12px;
-    color: var(--color-text);
+.settings-view :deep(.n-form-item:last-child) {
+    border-bottom: none;
+}
+
+.settings-view :deep(.n-form-item-label) {
+    font-weight: 500;
+    color: var(--text-primary);
+    text-align: left;
+    justify-content: flex-start;
 }
 
 .about-entry {
@@ -204,16 +202,22 @@ function goAbout() {
     min-width: 0;
 }
 
+/* 未使用 n-form-item 的 .setting-row（部分子组件的窄屏分支）保持统一版式 */
 .settings-view :deep(.setting-row) {
-    gap: 12px;
-    min-height: 44px;
-    flex-wrap: wrap;
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
+    padding: 15px 0;
+    border-bottom: 1px dashed var(--border-light);
+}
+
+.settings-view :deep(.setting-row:last-child) {
+    border-bottom: none;
 }
 
 .settings-view :deep(.setting-label) {
-    color: var(--color-text);
-    flex: 1;
-    min-width: 140px;
+    color: var(--text-primary);
+    font-weight: 500;
 }
 
 .settings-view :deep(.setting-row .n-switch) {
@@ -224,10 +228,30 @@ function goAbout() {
     width: 132px;
 }
 
+@media (min-width: 768px) {
+    .settings-view :deep(.n-form-item) {
+        display: flex;
+        align-items: flex-start;
+        gap: 20px;
+    }
+
+    .settings-view :deep(.n-form-item-label) {
+        padding-top: 8px;
+        padding-bottom: 0;
+    }
+}
+
 @media (max-width: 767px) {
-    .settings-section,
-    .settings-section + .settings-section {
-        padding: 16px 12px;
+    .set-card {
+        padding: 16px 14px;
+    }
+
+    .settings-view :deep(.n-form-item) {
+        padding: 12px 0;
+    }
+
+    .set-label {
+        width: 110px;
     }
 
     .settings-view :deep(.n-button) {

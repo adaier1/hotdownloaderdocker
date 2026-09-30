@@ -1,26 +1,26 @@
 <template>
-    <n-form-item label="启用飞书通知">
+    <n-form-item label="飞书通知">
         <n-switch v-model:value="enabled" />
     </n-form-item>
+
     <n-form-item label="FSKEY">
-        <n-input v-model:value="fsKey" clearable
-            placeholder="飞书自定义机器人 FSKEY（也可直接粘贴完整 Webhook 地址）" />
+        <div class="fskey-row">
+            <input v-model="fsKey" class="set-input mono"
+                placeholder="飞书自定义机器人 FSKEY（也可直接粘贴完整 Webhook 地址）" />
+            <button type="button" class="btn-ghost" :disabled="saving" @click="save">保存</button>
+            <button type="button" class="btn-ghost" :disabled="testing" @click="test">测试</button>
+        </div>
     </n-form-item>
-    <n-form-item label="操作">
-        <n-space>
-            <n-button type="primary" :loading="saving" @click="save">保存</n-button>
-            <n-button :loading="testing" @click="test">发送测试</n-button>
-        </n-space>
-    </n-form-item>
-    <p class="notify-hint">
+
+    <p class="set-hint">
         任务完成/失败时将推送到飞书群。FSKEY 获取：飞书群 → 设置 → 群机器人 → 添加「自定义机器人」，
-        复制 Webhook 地址中 <code>hook/</code> 之后的部分即为 FSKEY。
+        复制 Webhook 地址中 <code>hook/</code> 之后的部分即为 FSKEY
     </p>
 </template>
 
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { NButton, NFormItem, NInput, NSpace, NSwitch, useNotification } from 'naive-ui'
+import { NFormItem, NSwitch, useNotification } from 'naive-ui'
 import { fetchNotifyConfig, saveNotifyConfig, testNotify } from '../../api/webClient'
 
 const notification = useNotification()
@@ -73,16 +73,24 @@ async function test() {
 </script>
 
 <style scoped>
-.notify-hint {
-    margin: 0;
-    color: var(--text-secondary, #86868b);
-    font-size: 12.5px;
-    line-height: 1.6;
+.fskey-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-width: 0;
+    flex-wrap: wrap;
 }
 
-.notify-hint code {
+/* 给输入框较大的基准宽度，保证 FSKEY 完整显示，空间不足时按钮换行 */
+.fskey-row .set-input {
+    flex: 1 1 420px;
+}
+
+.set-hint code {
     padding: 0 4px;
-    background: var(--bg, #f5f5f7);
+    background: var(--border-light);
     border-radius: 4px;
+    font-family: var(--mono);
 }
 </style>

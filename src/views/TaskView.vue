@@ -15,44 +15,23 @@
                 会依次重新入队，实际同时下载数量由“最大并发数”决定
             </span>
 
-            <!-- 清除所有已下载（已完成）的任务记录 -->
-            <n-popconfirm v-if="canClearCompleted" :style="{ maxWidth: 'calc(100vw - 32px)' }"
-                @positive-click="handleClearCompleted">
-                <template #trigger>
-                    <n-button size="small" type="warning" :loading="clearing" :disabled="clearing">
-                        清除所有已下载的任务（{{ tabCounts.completed }}）
-                    </n-button>
-                </template>
-                <n-space vertical :size="8" class="task-toolbar-confirm">
-                    <span>确定清除 {{ tabCounts.completed }} 个已下载的任务记录吗？</span>
-                    <n-checkbox v-model:checked="deleteFileForCompleted">
-                        同时删除磁盘上已下载的文件（不可恢复）
-                    </n-checkbox>
-                </n-space>
-            </n-popconfirm>
+            <!-- 清除所有已下载（已完成）的任务记录：仅移除记录，不影响磁盘文件 -->
+            <n-button v-if="canClearCompleted" size="small" type="warning" :loading="clearing" :disabled="clearing"
+                @click="confirmClearCompleted">
+                清除所有已下载的任务（{{ tabCounts.completed }}）
+            </n-button>
 
             <!-- 清除所有历史任务（含进行中的任务，会被取消） -->
-            <n-popconfirm v-if="canClearAll" :style="{ maxWidth: 'calc(100vw - 32px)' }"
-                @positive-click="handleClearAll">
-                <template #trigger>
-                    <n-button size="small" type="error" :loading="clearing" :disabled="clearing">
-                        清除所有历史任务（{{ tabCounts.total }}）
-                    </n-button>
-                </template>
-                <n-space vertical :size="8" class="task-toolbar-confirm">
-                    <span>确定清除全部 {{ tabCounts.total }} 个任务记录吗？</span>
-                    <span v-if="activeTaskCount > 0" class="task-toolbar-warn">
-                        其中 {{ activeTaskCount }} 个任务正在进行（等待/下载/暂停/处理中），会被一并取消。
-                    </span>
-                    <n-checkbox v-model:checked="deleteFileForAll">
-                        同时删除磁盘上的文件（不可恢复）
-                    </n-checkbox>
-                </n-space>
-            </n-popconfirm>
+            <n-button v-if="canClearAll" size="small" type="error" :loading="clearing" :disabled="clearing"
+                @click="confirmClearAll">
+                清除所有历史任务（{{ tabCounts.total }}）
+            </n-button>
         </div>
 
-        <TaskTable :tasks="pagedTasks" :selectedRowKeys="selectedRowKeys"
-            @update:selectedRowKeys="selectedRowKeys = $event" @action="handleAction" />
+        <div class="table-card">
+            <TaskTable :tasks="pagedTasks" :selectedRowKeys="selectedRowKeys"
+                @update:selectedRowKeys="selectedRowKeys = $event" @action="handleAction" />
+        </div>
 
         <!-- 任务数量可能很大，只渲染当前页，避免一次性创建成千上万个 DOM/组件导致卡死 -->
         <div v-if="filteredTasks.length > pageSize" class="task-pagination">
@@ -67,7 +46,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { openFileLocation } from '../api/fileApi'
-import { NPagination, NButton, NPopconfirm, NCheckbox, NSpace, useNotification } from 'naive-ui'
+import { NPagination, NButton, useDialog, useNotification } from 'naive-ui'
 import { useTaskStore } from '../stores/taskStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useDownloadActions } from '../composables/useDownloadActions'
@@ -80,14 +59,12 @@ const taskStore = useTaskStore()
 const settingsStore = useSettingsStore()
 const { retryTask } = useDownloadActions()
 const notification = useNotification()
+const dialog = useDialog()
 
 const activeTab = ref('all')
 const selectedRowKeys = ref<string[]>([])
 const retryingAll = ref(false)
 const clearing = ref(false)
-// 两个清除操作各自的“同时删除文件”勾选项，默认不勾选，避免误删磁盘文件
-const deleteFileForCompleted = ref(false)
-const deleteFileForAll = ref(false)
 
 // 分页：任务列表可能包含上千条记录（尤其是“全部/已完成”），
 // 一次渲染全部任务会创建大量组件实例并频繁重渲染，是崩溃与卡顿的主因之一。
@@ -267,25 +244,33 @@ async function handleRetryAll() {
     }
 }
 
-/** 清除所有“已下载（已完成）”的任务记录，可选同时删除磁盘文件 */
-async function handleClearCompleted() {
-    if (clearing.value) return
-    const deleteFile = deleteFileForCompleted.value
-    deleteFileForCompleted.value = false
+/** 清除所有“已下载（已完成）”的任务记录：仅移除记录，不删除磁盘文件。 */
+function confirmClearCompleted() {
+    const count = tabCounts.value.completed
+    if (count === 0) return
+    dialog.warning({
+        title: '清除已下载任务记录',
+        content: `确定清除 ${count} 个已下载的任务记录吗？此操作只移除任务记录，不会修改或删除磁盘上已下载的文件。`,
+        positiveText: '确定清除',
+        negativeText: '取消',
+        onPositiveClick: () => performClearCompleted(),
+    })
+}
 
+async function performClearCompleted() {
+    if (clearing.value) return
     const ids = taskStore.tasks.filter((t) => t.status === 'completed').map((t) => t.id)
     if (ids.length === 0) return
 
     selectedRowKeys.value = []
     clearing.value = true
     try {
-        // 成功通知使用后端真实成功数
-        const result = await taskStore.removeTasks(ids, deleteFile)
-        const fileMessage = deleteFile ? '，并删除对应文件' : ''
+        // 始终只清除记录，不删除文件。
+        const result = await taskStore.removeTasks(ids, false)
         const failedMessage = result.failed > 0 ? `，${result.failed} 个失败` : ''
         notification.success({
             title: '已清除',
-            description: `已清除 ${result.succeeded} 个已下载的任务记录${fileMessage}${failedMessage}`,
+            description: `已清除 ${result.succeeded} 个已下载的任务记录（未删除文件）${failedMessage}`,
             duration: 4000,
         })
     } finally {
@@ -293,25 +278,36 @@ async function handleClearCompleted() {
     }
 }
 
-/** 清除所有历史任务（含等待/下载/暂停/处理中的任务，会被一并取消） */
-async function handleClearAll() {
-    if (clearing.value) return
-    const deleteFile = deleteFileForAll.value
-    deleteFileForAll.value = false
+/** 清除所有历史任务（含等待/下载/暂停/处理中的任务，会被一并取消）。 */
+function confirmClearAll() {
+    const total = tabCounts.value.total
+    if (total === 0) return
+    const activeNote = activeTaskCount.value > 0
+        ? `其中 ${activeTaskCount.value} 个任务正在进行（等待/下载/暂停/处理中），会被一并取消。`
+        : ''
+    dialog.warning({
+        title: '清除所有历史任务',
+        content: `确定清除全部 ${total} 个任务记录吗？${activeNote}此操作只移除任务记录，不会修改或删除磁盘上已下载的文件。`,
+        positiveText: '确定清除',
+        negativeText: '取消',
+        onPositiveClick: () => performClearAll(),
+    })
+}
 
+async function performClearAll() {
+    if (clearing.value) return
     const ids = taskStore.tasks.map((t) => t.id)
     if (ids.length === 0) return
 
     selectedRowKeys.value = []
     clearing.value = true
     try {
-        // 成功通知使用后端真实成功数
-        const result = await taskStore.removeTasks(ids, deleteFile)
-        const fileMessage = deleteFile ? '，并删除对应文件' : ''
+        // 始终只清除记录，不删除文件。
+        const result = await taskStore.removeTasks(ids, false)
         const failedMessage = result.failed > 0 ? `，${result.failed} 个失败` : ''
         notification.success({
             title: '已清除',
-            description: `已清除全部 ${result.succeeded} 个任务记录${fileMessage}${failedMessage}`,
+            description: `已清除全部 ${result.succeeded} 个任务记录（未删除文件）${failedMessage}`,
             duration: 4000,
         })
     } finally {
@@ -339,12 +335,36 @@ async function handleClearAll() {
     display: flex;
     align-items: center;
     gap: 8px 12px;
-    padding: 12px;
-    margin-bottom: 12px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
     flex-wrap: wrap;
-    background: var(--bg-sidebar);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+}
+
+/* 任务表格放入卡片，隐藏 Naive 表格自带外边框，匹配 MusicDock 版式 */
+.table-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+}
+
+.table-card :deep(.n-data-table) {
+    --n-border-color: transparent;
+}
+
+.table-card :deep(.n-data-table .n-data-table-th) {
+    background-color: #fafbfc;
+    color: var(--text-tertiary);
+    font-weight: 500;
+}
+
+.table-card :deep(.n-data-table .n-data-table-td) {
+    border-bottom: 1px solid var(--border);
 }
 
 .task-toolbar-hint {

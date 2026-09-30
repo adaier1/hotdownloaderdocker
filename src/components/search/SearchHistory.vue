@@ -1,23 +1,24 @@
 <template>
     <div class="search-history" v-if="history.length > 0">
         <div class="history-header">
-            <span>搜索历史</span>
-            <n-button text type="primary" size="small" @click="$emit('clear')">
-                清除历史
-            </n-button>
+            <span class="section-label">搜索历史</span>
+            <button type="button" class="link-danger" @click="$emit('clear')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                    <path d="M3 6h18M8 6V4h8v2m1 0-1 14H8L7 6" />
+                </svg>
+                清除搜索历史
+            </button>
         </div>
-        <div class="history-tags">
-            <n-tag v-for="item in history" :key="item" closable @close="$emit('remove', item)"
-                @click="$emit('select', item)" class="history-tag">
-                {{ item }}
-            </n-tag>
+        <div class="history-chips">
+            <span v-for="item in history" :key="item" class="md-chip">
+                <button type="button" class="chip-text" @click="$emit('select', item)">{{ item }}</button>
+                <button type="button" class="chip-remove" aria-label="删除" @click="$emit('remove', item)">×</button>
+            </span>
         </div>
     </div>
 </template>
 
 <script setup lang="ts">
-import { NTag, NButton } from 'naive-ui'
-
 defineProps<{
     history: string[]
 }>()
@@ -38,31 +39,78 @@ defineEmits<{
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 8px;
+    gap: 12px;
+    margin-bottom: 12px;
 }
 
-.history-tags {
+.section-label {
+    font-size: 14.5px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.link-danger {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: none;
+    border: none;
+    color: var(--danger);
+    font-size: 13px;
+    font-weight: 500;
+    font-family: inherit;
+    padding: 4px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background var(--transition);
+}
+
+.link-danger:hover {
+    background: var(--danger-weak);
+}
+
+.link-danger svg {
+    width: 13px;
+    height: 13px;
+}
+
+.history-chips {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 10px;
 }
 
-.history-tag {
+.md-chip {
+    padding: 0 6px 0 0;
+    gap: 2px;
+}
+
+.chip-text {
+    border: none;
+    background: none;
+    font: inherit;
+    color: inherit;
     cursor: pointer;
-    max-width: 100%;
+    padding: 8px 6px 8px 18px;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-/* 长关键词换行显示，保留标签末尾的删除入口 */
-.history-tag :deep(.n-tag__content) {
-    min-width: 0;
-    white-space: normal;
-    overflow-wrap: anywhere;
+.chip-remove {
+    border: none;
+    background: none;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+    padding: 6px 10px;
+    border-radius: 999px;
 }
 
-.history-tag.n-tag {
-    height: auto;
-    min-height: 32px;
-    padding-top: 4px;
-    padding-bottom: 4px;
+.chip-remove:hover {
+    color: var(--danger);
+    background: var(--danger-weak);
 }
 </style>

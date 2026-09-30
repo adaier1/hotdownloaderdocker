@@ -1,5 +1,6 @@
 <template>
-  <n-config-provider :theme="theme" :theme-overrides="themeOverrides" class="app-root">
+  <n-config-provider :theme="theme" :theme-overrides="themeOverrides" :locale="zhCN" :date-locale="dateZhCN"
+    class="app-root">
     <n-dialog-provider>
       <n-notification-provider>
         <NavLayout v-if="native || webSession.authorized" />
@@ -12,7 +13,7 @@
 
 <script setup lang="ts">
 import { onMounted } from 'vue'
-import { NConfigProvider, NDialogProvider, NNotificationProvider } from 'naive-ui'
+import { NConfigProvider, NDialogProvider, NNotificationProvider, dateZhCN, zhCN } from 'naive-ui'
 import NavLayout from './components/NavLayout.vue'
 import UpdateChecker from './components/settings/UpdateChecker.vue'
 import WebAccessGate from './components/WebAccessGate.vue'

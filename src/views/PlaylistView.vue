@@ -141,20 +141,22 @@ watch(
 
 .playlist-info {
     display: flex;
-    gap: 16px;
+    gap: 20px;
     align-items: center;
-    padding: 16px;
-    background-color: var(--bg-sidebar);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
+    padding: 22px 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
 }
 
 .playlist-cover {
-    width: 80px;
-    height: 80px;
-    border-radius: 8px;
+    width: 92px;
+    height: 92px;
+    border-radius: 14px;
     object-fit: cover;
     flex-shrink: 0;
+    background: linear-gradient(135deg, #8a5cf6, #e879b0);
 }
 
 .playlist-details {
@@ -164,20 +166,25 @@ watch(
 }
 
 .playlist-name {
-    font-size: 18px;
-    font-weight: 600;
+    font-size: 21px;
+    font-weight: 700;
     margin-bottom: 8px;
+    color: var(--text-primary);
 }
 
 .playlist-creator {
-    color: var(--color-text-secondary);
-    font-size: 14px;
+    color: var(--text-tertiary);
+    font-size: 13.5px;
 }
 
 .playlist-meta {
-    color: var(--color-text-secondary);
-    font-size: 13px;
+    color: var(--text-tertiary);
+    font-size: 13.5px;
     margin-top: 4px;
+}
+
+.playlist-meta b {
+    color: var(--text-secondary);
 }
 
 .list-header {
@@ -189,13 +196,13 @@ watch(
 
 .count-text {
     font-size: 13px;
-    color: var(--color-text-secondary);
+    color: var(--text-secondary);
 }
 
 .song-items {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 14px;
 }
 
 /* 窄屏缩小信息区留白，封面保持比例，长文本自动换行 */
@@ -203,12 +210,13 @@ watch(
     .playlist-info {
         align-items: flex-start;
         gap: 12px;
-        padding: 12px;
+        padding: 14px;
     }
 
     .playlist-cover {
         width: 64px;
         height: 64px;
+        border-radius: 10px;
     }
 }
 </style>
