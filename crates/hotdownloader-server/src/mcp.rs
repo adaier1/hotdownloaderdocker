@@ -111,7 +111,7 @@ fn initialize_result(params: &Value) -> Value {
         "protocolVersion": requested,
         "capabilities": { "tools": { "listChanged": false } },
         "serverInfo": { "name": "hotdownloader", "version": env!("CARGO_PKG_VERSION") },
-        "instructions": "HotDownloader 音乐下载服务：可搜索歌曲/歌单/专辑/歌手、获取歌词、创建与管理下载任务、读写设置。"
+        "instructions": "HotDownloader 音乐下载服务：可搜索歌曲/歌单/专辑/歌手、获取歌词、创建与管理下载任务、读写设置，以及管理曲库（列出/删除/重命名下载目录中的音频文件并写入标签）。"
     })
 }
 
@@ -150,6 +150,11 @@ async fn call_tool(runtime: &Arc<ServerRuntime>, params: &Value) -> Result<Value
         "patch_settings" => patch_settings(runtime, args),
         "get_default_download_dir" => Ok(json!(runtime.environment.default_download_dir())),
         "get_login_status" => get_login_status(runtime).await,
+        // 曲库（下载目录）
+        "list_library" => list_library(runtime, args),
+        "delete_library_files" => delete_library_files(runtime, args),
+        "rename_library_file" => rename_library_file(runtime, args),
+        "write_library_metadata" => write_library_metadata(runtime, args),
         _ => return Err((-32602, format!("未知工具: {name}"))),
     };
 
@@ -241,6 +246,87 @@ fn patch_settings(runtime: &ServerRuntime, args: Value) -> Result<Value, String>
 async fn get_login_status(runtime: &ServerRuntime) -> Result<Value, String> {
     let result = qq_login::get_login_status(runtime.login_store.as_ref()).await?;
     serde_json::from_str(&result).map_err(|error| error.to_string())
+}
+
+// ==================== 曲库（下载目录） ====================
+
+/// 曲库操作统一作用于服务端下载目录。
+fn library_directory(runtime: &ServerRuntime) -> &str {
+    runtime.environment.default_download_dir()
+}
+
+/// 列出下载目录中的音频文件，支持按文件名过滤与分页。
+fn list_library(runtime: &ServerRuntime, args: Value) -> Result<Value, String> {
+    let directory = library_directory(runtime);
+    let mut files = hotdownloader_core::library::list_audio_files(directory)?;
+
+    let keyword = args
+        .get("keyword")
+        .and_then(|value| value.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
+    if !keyword.is_empty() {
+        files.retain(|file| file.name.to_lowercase().contains(&keyword));
+    }
+
+    let total = files.len();
+    let offset = args
+        .get("offset")
+        .and_then(|value| value.as_u64())
+        .unwrap_or(0) as usize;
+    let limit = args
+        .get("limit")
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize);
+    let files: Vec<_> = match limit {
+        Some(limit) => files.into_iter().skip(offset).take(limit).collect(),
+        None => files.into_iter().skip(offset).collect(),
+    };
+
+    Ok(json!({ "directory": directory, "total": total, "files": files }))
+}
+
+/// 批量删除下载目录中的音频文件。
+fn delete_library_files(runtime: &ServerRuntime, args: Value) -> Result<Value, String> {
+    let paths: Vec<String> =
+        serde_json::from_value(args.get("paths").cloned().unwrap_or_else(|| json!([])))
+            .map_err(|error| format!("paths 解析失败: {error}"))?;
+    let result =
+        hotdownloader_core::library::delete_audio_files(library_directory(runtime), &paths)?;
+    serde_json::to_value(result).map_err(|error| error.to_string())
+}
+
+/// 重命名下载目录中的音频文件。
+fn rename_library_file(runtime: &ServerRuntime, args: Value) -> Result<Value, String> {
+    let path = args
+        .get("path")
+        .and_then(|value| value.as_str())
+        .ok_or("缺少 path")?;
+    let new_name = args
+        .get("newName")
+        .and_then(|value| value.as_str())
+        .ok_or("缺少 newName")?;
+    let entry = hotdownloader_core::library::rename_audio_file(
+        library_directory(runtime),
+        path,
+        new_name,
+    )?;
+    serde_json::to_value(entry).map_err(|error| error.to_string())
+}
+
+/// 写入/修改下载目录音频文件的标签。
+fn write_library_metadata(runtime: &ServerRuntime, args: Value) -> Result<Value, String> {
+    let path = args
+        .get("path")
+        .and_then(|value| value.as_str())
+        .ok_or("缺少 path")?
+        .to_string();
+    // 未知字段（path 等）会被忽略，只解析标签字段。
+    let update: hotdownloader_core::library::MetadataUpdate =
+        serde_json::from_value(args).map_err(|error| format!("参数解析失败: {error}"))?;
+    hotdownloader_core::library::write_audio_metadata(library_directory(runtime), &path, &update)?;
+    Ok(json!({ "ok": true, "path": path }))
 }
 
 // ==================== 工具定义 ====================
@@ -426,6 +512,60 @@ fn tool_definitions() -> Vec<Value> {
             json!({ "type": "object", "properties": {} }),
         ),
         tool("get_login_status", "获取 QQ 音乐登录状态。", json!({ "type": "object", "properties": {} })),
+        tool(
+            "list_library",
+            "列出下载目录（曲库）中的音频文件，可按文件名关键词过滤并分页。",
+            json!({
+                "type": "object",
+                "properties": {
+                    "keyword": { "type": "string", "description": "按文件名过滤的关键词" },
+                    "offset": { "type": "integer", "minimum": 0, "default": 0 },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": 500 }
+                }
+            }),
+        ),
+        tool(
+            "delete_library_files",
+            "删除曲库（下载目录）中的音频文件，按 list_library 返回的路径批量删除。",
+            json!({
+                "type": "object",
+                "properties": {
+                    "paths": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "要删除的文件路径"
+                    }
+                },
+                "required": ["paths"]
+            }),
+        ),
+        tool(
+            "rename_library_file",
+            "重命名曲库中的音频文件（自动清洗非法字符，可省略扩展名以沿用原扩展名）。",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "原文件路径" },
+                    "newName": { "type": "string", "description": "新的文件名（不含目录，可省略扩展名）" }
+                },
+                "required": ["path", "newName"]
+            }),
+        ),
+        tool(
+            "write_library_metadata",
+            "写入或修改曲库音频文件的标签（标题/歌手/专辑/歌词）。仅传入的字段会被修改，空字符串表示清除该字段。",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "文件路径" },
+                    "title": { "type": "string", "description": "标题" },
+                    "artist": { "type": "string", "description": "歌手" },
+                    "album": { "type": "string", "description": "专辑" },
+                    "lyrics": { "type": "string", "description": "歌词文本" }
+                },
+                "required": ["path"]
+            }),
+        ),
     ]
 }
 
