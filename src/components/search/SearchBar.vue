@@ -1,24 +1,27 @@
 <template>
-    <div class="search-bar md-search">
-        <!-- 平台选择：胶囊前缀（对应 MusicDock 的 KM 标记） -->
-        <n-dropdown :options="platformDropdownOptions" trigger="click" @select="handlePlatformSelect">
-            <button type="button" class="md-kb-chip platform-chip">
-                {{ currentPlatformLabel }}<span class="platform-arrow">▾</span>
-            </button>
-        </n-dropdown>
+    <div class="search-bar-group">
+        <div class="search-bar md-search">
+            <n-input v-model:value="keywordModel" :placeholder="placeholder" clearable @keyup.enter="handleSearch"
+                @clear="handleClear" class="search-input" />
+            <n-button type="primary" @click="handleSearch" :disabled="!keywordModel.trim() || loading" :loading="loading"
+                class="search-btn">
+                {{ buttonText }}
+            </n-button>
+        </div>
 
-        <n-input v-model:value="keywordModel" :placeholder="placeholder" clearable @keyup.enter="handleSearch"
-            @clear="handleClear" class="search-input" />
-        <n-button type="primary" @click="handleSearch" :disabled="!keywordModel.trim() || loading" :loading="loading"
-            class="search-btn">
-            {{ buttonText }}
-        </n-button>
+        <!-- 平台选择：搜索栏下方的可点击胶囊 -->
+        <div class="md-pills platform-switch">
+            <button v-for="p in platformOptions" :key="p.key" type="button" class="md-pill"
+                :class="{ active: p.key === platform }" @click="handlePlatformSelect(p.key)">
+                {{ p.label }}
+            </button>
+        </div>
     </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
-import { NInput, NButton, NDropdown } from 'naive-ui'
+import { ref, watch } from 'vue'
+import { NInput, NButton } from 'naive-ui'
 import type { PlatformOption } from '../../config/platforms'
 
 const props = withDefaults(
@@ -45,20 +48,6 @@ const emit = defineEmits<{
 }>()
 
 const keywordModel = ref(props.keyword)
-
-// 当前平台对应的显示 label
-const currentPlatformLabel = computed(() => {
-    const found = props.platformOptions.find(p => p.key === props.platform)
-    return found ? found.label : props.platform
-})
-
-// 下拉选项格式：Naive UI 需要 { label, key } 结构
-const platformDropdownOptions = computed(() => {
-    return props.platformOptions.map(p => ({
-        label: p.label,
-        key: p.key,
-    }))
-})
 
 // 平台选择处理：触发 update:platform 事件，父组件更新 platform 值
 function handlePlatformSelect(key: string) {
@@ -94,24 +83,28 @@ function handleClear() {
 
 <style scoped>
 /* 外层版式由 .md-search 提供；这里只负责内部控件的透明与尺寸 */
+.search-bar-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+}
+
 .search-bar {
     --search-height: 40px;
     --search-font-size: 15px;
     gap: 12px;
 }
 
-.platform-chip {
-    border: none;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-family: inherit;
+.platform-switch {
+    padding: 0 2px;
 }
 
-.platform-arrow {
-    font-size: 11px;
-    opacity: 0.8;
+.platform-switch .md-pill {
+    padding: 6px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
 }
 
 .search-bar .search-input {
@@ -177,6 +170,10 @@ function handleClear() {
 
     .search-btn {
         min-height: 44px;
+    }
+
+    .platform-switch .md-pill {
+        min-height: 40px;
     }
 }
 </style>

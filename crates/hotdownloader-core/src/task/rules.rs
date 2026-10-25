@@ -12,6 +12,9 @@ pub struct TaskRules {
 impl TaskRules {
     pub fn from_settings(settings: &Value) -> Self {
         let default_order = [
+            "超清母带",
+            "沉浸环绕声",
+            "高清环绕声",
             "臻品母带",
             "臻品全景声 7.1.4",
             "臻品全景声 5.1",

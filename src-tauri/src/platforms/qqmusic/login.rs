@@ -2,13 +2,13 @@
 
 use std::sync::Arc;
 
-use hotdownloader_core::platforms::qqmusic::login::{self as qq_login, LoginCredentialStore};
+use hotdownloader_core::platforms::qqmusic::login::{
+    self as qq_login, LoginCredentialStore, ResolvedDownloadAuth,
+};
 use serde_json::Value;
 use tauri::AppHandle;
 
 use crate::storage::store_wrapper;
-
-pub use hotdownloader_core::platforms::qqmusic::login::LoginCredentials;
 
 struct TauriLoginStore {
     app: AppHandle,
@@ -67,16 +67,9 @@ impl LoginCredentialStore for TauriLoginStore {
     }
 }
 
-pub(crate) async fn get_login_credentials(app: &AppHandle) -> (Option<String>, Option<String>) {
-    qq_login::get_login_credentials(&TauriLoginStore::new(app)).await
-}
-
-pub(crate) async fn check_credential_expired(app: &AppHandle) -> Result<bool, String> {
-    qq_login::check_credential_expired(&TauriLoginStore::new(app)).await
-}
-
-pub(crate) async fn refresh_credential(app: &AppHandle) -> Result<LoginCredentials, String> {
-    qq_login::refresh_credential(&TauriLoginStore::new(app)).await
+/// 使用应用 Store 提供凭据；校验与刷新策略由核心处理。
+pub(crate) async fn download_auth(app: &AppHandle) -> ResolvedDownloadAuth {
+    qq_login::download_auth(&TauriLoginStore::new(app)).await
 }
 
 pub(crate) async fn create_qr_login(app: AppHandle) -> Result<String, String> {
@@ -115,4 +108,26 @@ pub(crate) async fn logout(app: AppHandle) -> Result<(), String> {
 
 pub(crate) async fn get_login_status(app: AppHandle) -> Result<String, String> {
     qq_login::get_login_status(&TauriLoginStore { app }).await
+}
+
+pub(crate) async fn fetch_created_playlists(app: &AppHandle) -> Result<String, String> {
+    hotdownloader_core::platforms::qqmusic::playlist::fetch_created_playlists(
+        &TauriLoginStore::new(app),
+    )
+    .await
+}
+
+pub(crate) async fn fetch_created_playlist_songs(
+    app: &AppHandle,
+    separator: &str,
+    id: String,
+    dirid: String,
+) -> Result<String, String> {
+    hotdownloader_core::platforms::qqmusic::playlist::fetch_created_playlist_songs(
+        &TauriLoginStore::new(app),
+        separator,
+        id,
+        dirid,
+    )
+    .await
 }

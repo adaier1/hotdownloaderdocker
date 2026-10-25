@@ -2,8 +2,10 @@
 
 pub mod config;
 pub mod context;
+mod cover;
 pub(crate) mod decryption;
 pub mod engine;
+pub mod fallback;
 pub(crate) mod filename;
 pub mod link;
 pub(crate) mod path;

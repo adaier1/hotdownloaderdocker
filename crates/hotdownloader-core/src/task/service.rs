@@ -1,6 +1,10 @@
+use std::sync::Arc;
+
+use tokio::sync::Mutex;
+
 use crate::download::config::DownloadConfig;
-use crate::download::context::SongInfo;
-use crate::download::engine::{DownloadEngine, ERR_TASK_CONTEXT_MISSING};
+use crate::download::context::{SongInfo, TaskContext};
+use crate::download::engine::DownloadEngine;
 use crate::platforms::Platform;
 use crate::task::contract::{
     BatchResult, CreateTaskRequest, CreateTaskResult, DuplicateAction, TaskRecord, TaskStatus,
@@ -55,26 +59,30 @@ impl<'a> TaskService<'a> {
     async fn register_engine_task(&self, task: &TaskRecord) -> Result<(), String> {
         // 持久化记录是下载器上下文的来源。重试旧任务时可用同一记录重建上下文，
         // 无需依赖前端页面保留 URL、路径或下载参数。
-        let platform = Platform::from_str(&task.platform)?;
-        self.engine
-            .add_task(
-                task.id.clone(),
-                platform,
-                task.song_id,
-                task.song_mid.clone(),
-                String::new(),
-                task.save_path.clone().unwrap_or_default(),
-                task.quality.clone(),
-                task.filename.clone(),
-                String::new(),
-                task.file_size,
-                task.song_title.clone(),
-                task.artist.clone(),
-                task.album.clone(),
-                task.cover_url.clone(),
-                task.downloaded,
-            )
-            .await;
+        let platform = task.platform.parse::<Platform>()?;
+        let context = TaskContext {
+            task_id: task.id.clone(),
+            platform,
+            song_id: task.song_id,
+            song_mid: task.song_mid.clone(),
+            url: String::new(),
+            save_path: task.save_path.clone().unwrap_or_default(),
+            quality: task.quality.clone(),
+            quality_filename: task.filename.clone(),
+            key: String::new(),
+            file_size: task.file_size,
+            downloaded_offset: task.downloaded,
+            song_info: SongInfo {
+                title: task.song_title.clone(),
+                artist: task.artist.clone(),
+                album: task.album.clone(),
+                quality: task.quality.clone(),
+                cover_url: task.cover_url.clone(),
+            },
+            // 引擎和 worker 共享此路径状态，用于下载完成后删除目标文件。
+            final_path: Arc::new(Mutex::new(None)),
+        };
+        self.engine.add_task(context).await;
         Ok(())
     }
 
@@ -147,10 +155,54 @@ impl<'a> TaskService<'a> {
         &self,
         request: CreateTaskRequest,
     ) -> Result<CreateTaskResult, String> {
-        Platform::from_str(&request.song.platform)?;
+        self.create_task(request, false).await
+    }
+
+    /// 自动补齐还复用历史任务；明确重下与普通下载仅复用尚未结束的任务。
+    pub async fn create_automatic_task(
+        &self,
+        request: CreateTaskRequest,
+        force_download: bool,
+    ) -> Result<CreateTaskResult, String> {
+        self.create_task(request, !force_download).await
+    }
+
+    async fn create_task(
+        &self,
+        request: CreateTaskRequest,
+        reuse_history: bool,
+    ) -> Result<CreateTaskResult, String> {
+        request.song.platform.parse::<Platform>()?;
         let state = self.state;
         // 锁覆盖路径检查、占用和入队，防止并发创建时绕过重名判断。
         let _creation_guard = state.creation_lock.lock().await;
+        // MID 检查与持久化、引擎注册共用同一临界区，所有入口都无法并发创建副本。
+        // 空 MID 的平台歌曲回退到歌曲 ID，避免把不同歌曲当成同一首。
+        if let Some(task) = state
+            .list()
+            .into_iter()
+            .filter(|task| {
+                task.platform == request.song.platform
+                    && if request.song.mid.is_empty() {
+                        task.song_mid.is_empty() && task.song_id == request.song.id
+                    } else {
+                        task.song_mid == request.song.mid
+                    }
+                    && (reuse_history
+                        || !matches!(task.status, TaskStatus::Completed | TaskStatus::Error))
+            })
+            .max_by_key(|task| {
+                (
+                    !matches!(task.status, TaskStatus::Completed | TaskStatus::Error),
+                    task.added_at,
+                    task.id.clone(),
+                )
+            })
+        {
+            return Ok(CreateTaskResult::Existing {
+                task: Box::new(task),
+            });
+        }
         let rules = self.environment.task_rules();
         let selected = rules
             .initial_quality(&request.desired_quality, &request.song.qualities)
@@ -245,7 +297,9 @@ impl<'a> TaskService<'a> {
                 return Err(e);
             }
         }
-        Ok(CreateTaskResult::Created { task })
+        Ok(CreateTaskResult::Created {
+            task: Box::new(task),
+        })
     }
 
     pub async fn pause_task(&self, task_id: String) -> Result<(), String> {
@@ -356,12 +410,23 @@ impl<'a> TaskService<'a> {
         if task.status != TaskStatus::Error {
             return Ok(false);
         }
+        if state.list().iter().any(|other| {
+            other.id != task.id
+                && other.platform == task.platform
+                && if task.song_mid.is_empty() {
+                    other.song_mid.is_empty() && other.song_id == task.song_id
+                } else {
+                    other.song_mid == task.song_mid
+                }
+                && !matches!(other.status, TaskStatus::Completed | TaskStatus::Error)
+        }) {
+            return Err("此歌曲已有未结束的下载任务".into());
+        }
         let engine = self.engine;
         // 上一轮 worker 可能刚发出失败事件但尚未退出；先等待，避免新旧 worker 并发写入。
         engine.wait_for_task_exit(&task_id).await;
         let rules = self.environment.task_rules();
         let next_count = task.retry_count + 1;
-        let mut downgraded = false;
         if next_count > 3 {
             // 次数耗尽后的行为完全由 Rust 决定；旧任务没有品质列表时不能凭空推断文件名。
             if !rules.auto_downgrade {
@@ -397,7 +462,6 @@ impl<'a> TaskService<'a> {
             task.downloaded = 0;
             task.retry_count = 0;
             task.save_path = None;
-            downgraded = true;
             // 降级后的文件名和大小都已变更，需要重新计算路径并解决冲突。
             let path = self.task_path_check(&task).await?;
             let reserved = state.path_reserved(&path.original_path);
@@ -441,20 +505,9 @@ impl<'a> TaskService<'a> {
             record.status = TaskStatus::Waiting;
         })?;
 
-        let result = if downgraded {
-            // 品质改变后，旧下载器上下文中的 URL、目标路径都不再适用。
-            engine.forget_final_path(&task_id).await;
-            self.register_engine_task(&task).await
-        } else {
-            match engine.enqueue_task(&task_id, task.downloaded).await {
-                Ok(()) => Ok(()),
-                Err(e) if e.contains(ERR_TASK_CONTEXT_MISSING) => {
-                    // 应用重启后只有持久化记录，没有进程内下载器上下文，直接重建。
-                    self.register_engine_task(&task).await
-                }
-                Err(e) => Err(e),
-            }
-        };
+        engine.forget_final_path(&task_id).await;
+        // worker 可在同一次执行中降级；始终从最新持久化记录重建上下文。
+        let result = self.register_engine_task(&task).await;
         if let Err(e) = result {
             state.failed(&task_id, &format!("启动下载失败: {e}"), None);
             return Err(e);
@@ -669,6 +722,92 @@ mod tests {
         };
         assert!(task.save_path.unwrap().ends_with("歌曲 - 歌手 (1).mp3"));
         assert_eq!(repository.load().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn concurrent_creation_reuses_one_task_across_qualities_and_sources() {
+        let repository = Arc::new(MemoryRepository(Mutex::new(Vec::new())));
+        let state = TaskState::load(repository.clone(), Arc::new(QuietEvents)).unwrap();
+        let engine = DownloadEngine::new(
+            Arc::new(QuietRunner),
+            Arc::new(LocalFileDeleter),
+            Arc::new(NoopCompletionNotifier),
+        );
+        let environment = ExistingOriginalPath {
+            download_dir: std::env::temp_dir().to_string_lossy().into_owned(),
+            file_length: None,
+        };
+        let service = TaskService::new(&state, &engine, &environment);
+        let results = futures_util::future::join_all((0..32).map(|i| {
+            let service = &service;
+            async move {
+                let mut input = request(Some(DuplicateAction::Rename));
+                if i % 2 == 1 {
+                    input.desired_quality = "flac".into();
+                }
+                if i % 3 == 0 {
+                    service.create_automatic_task(input, false).await.unwrap()
+                } else {
+                    service.create_download_task(input).await.unwrap()
+                }
+            }
+        }))
+        .await;
+        assert_eq!(
+            results
+                .iter()
+                .filter(|r| matches!(r, CreateTaskResult::Created { .. }))
+                .count(),
+            1
+        );
+        let id = state.list()[0].id.clone();
+        for result in results {
+            let (CreateTaskResult::Created { task } | CreateTaskResult::Existing { task }) = result
+            else {
+                panic!("应创建或复用任务")
+            };
+            assert_eq!(task.id, id);
+        }
+        assert_eq!(repository.load().unwrap().len(), 1);
+        // 暂停、中断也占用 MID；历史完成任务允许明确重新下载。
+        for status in [
+            crate::task::contract::TaskStatus::Paused,
+            crate::task::contract::TaskStatus::Interrupted,
+        ] {
+            state.update(&id, true, |t| t.status = status).unwrap();
+            assert!(matches!(
+                service
+                    .create_download_task(request(Some(DuplicateAction::Rename)))
+                    .await
+                    .unwrap(),
+                CreateTaskResult::Existing { .. }
+            ));
+        }
+        state
+            .update(&id, true, |t| {
+                t.status = crate::task::contract::TaskStatus::Completed
+            })
+            .unwrap();
+        assert!(matches!(
+            service
+                .create_automatic_task(request(Some(DuplicateAction::Rename)), false)
+                .await
+                .unwrap(),
+            CreateTaskResult::Existing { .. }
+        ));
+        assert!(matches!(
+            service
+                .create_download_task(request(Some(DuplicateAction::Rename)))
+                .await
+                .unwrap(),
+            CreateTaskResult::Created { .. }
+        ));
+        state
+            .update(&id, true, |t| {
+                t.status = crate::task::contract::TaskStatus::Error
+            })
+            .unwrap();
+        assert!(service.retry_task(id).await.is_err());
     }
 
     #[tokio::test]

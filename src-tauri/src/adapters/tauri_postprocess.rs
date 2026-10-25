@@ -32,7 +32,13 @@ impl DownloadPostprocessor for TauriDownloadPostprocessor {
         Box::pin(async move {
             let context = request.context;
             let config = request.config;
-            let assets = prepare_assets(context, config.write_metadata, config.download_lrc).await;
+            let assets = prepare_assets(
+                context,
+                config.write_metadata,
+                config.download_lrc,
+                config.cover_quality,
+            )
+            .await;
 
             if config.write_metadata {
                 if request.is_saf {

@@ -6,8 +6,10 @@ use rand::Rng;
 mod platform;
 pub use platform::Platform;
 
+pub mod kugou;
 pub mod kuwo;
 pub mod lyric;
+pub mod netease;
 pub mod qqmusic;
 
 /// 平台查询复用短超时 HTTP 客户端；与大文件流下载客户端分开。

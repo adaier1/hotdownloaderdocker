@@ -3,7 +3,7 @@
 
 pub mod adapters;
 pub mod download;
-pub mod library;
 pub mod platforms;
+pub mod library;
 pub mod settings;
 pub mod task;

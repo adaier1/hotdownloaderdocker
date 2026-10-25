@@ -130,6 +130,7 @@ fn validate_field(
 ) -> Result<(), SettingsPatchError> {
     let valid = match field {
         "autoDowngrade" | "writeMetadata" | "downloadLrc" => value.is_boolean(),
+        "coverQuality" => matches!(value.as_str(), Some("source" | "500" | "original")),
         "maxConcurrent" => matches!(value.as_u64(), Some(1..=32)),
         "defaultQuality" => value
             .as_str()
@@ -233,6 +234,31 @@ mod tests {
                 ),
                 Err(SettingsPatchError::Invalid(_))
             ));
+        }
+    }
+
+    #[test]
+    fn cover_quality_is_validated_and_persisted_for_both_runtimes() {
+        for scope in [SettingsScope::Tauri, SettingsScope::Web] {
+            for quality in ["source", "500", "original"] {
+                let applied = apply_patch(
+                    &json!({}),
+                    patch("coverQuality", json!(quality), Value::Null),
+                    scope,
+                )
+                .unwrap();
+                assert_eq!(applied.snapshot.settings["coverQuality"], quality);
+            }
+            for invalid in [json!("1000"), json!(500), json!(true), Value::Null] {
+                assert!(matches!(
+                    apply_patch(
+                        &json!({}),
+                        patch("coverQuality", invalid, Value::Null),
+                        scope
+                    ),
+                    Err(SettingsPatchError::Invalid(_))
+                ));
+            }
         }
     }
 }

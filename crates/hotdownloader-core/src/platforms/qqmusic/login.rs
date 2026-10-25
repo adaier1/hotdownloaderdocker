@@ -23,6 +23,7 @@ use rumqttc::v5::mqttbytes::QoS;
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
+use super::credentials::QqAuth;
 use crate::platforms::CLIENT;
 
 /// 登录流程只读写凭据设置，不接触窗口、IPC 或 Android 文件接口。
@@ -803,10 +804,71 @@ pub async fn get_login_credentials(
     (uin, authst)
 }
 
+/// 下载链接使用的凭据，以及需要由运行时提示用户的刷新错误。
+/// 刷新失败仍返回旧凭据，使链接请求有机会继续成功。
+pub struct ResolvedDownloadAuth {
+    /// 当前可用于链接请求的凭据；未登录时为 `None`。
+    pub auth: Option<QqAuth>,
+    /// 仅在确认过期且刷新失败时有值；运行时可据此提示用户。
+    pub refresh_error: Option<String>,
+}
+
+/// 读取当前登录态，并在凭据明确过期时尝试刷新。
+/// 校验接口的网络或解析错误不代表凭据过期，继续使用原凭据。
+pub async fn download_auth(store: &dyn LoginCredentialStore) -> ResolvedDownloadAuth {
+    let (uin, authst) = get_login_credentials(store).await;
+    let Some((uin, authst)) = uin.zip(authst) else {
+        return ResolvedDownloadAuth {
+            auth: None,
+            refresh_error: None,
+        };
+    };
+    let mut auth = QqAuth { uin, authst };
+
+    let expired = match check_credential_expired(store).await {
+        Ok(expired) => expired,
+        Err(error) => {
+            // 校验请求失败无法证明凭据过期，继续用旧凭据获取链接。
+            log::warn!("QQ 凭据校验失败，继续使用现有凭据: {error}");
+            false
+        }
+    };
+
+    if expired {
+        match refresh_credential(store).await {
+            Ok(credentials) => {
+                auth = QqAuth {
+                    uin: credentials.uin,
+                    authst: credentials.authst,
+                };
+            }
+            Err(error) => {
+                // 保留任务启动时读到的旧凭据；刷新错误交给运行时通知用户。
+                return ResolvedDownloadAuth {
+                    auth: Some(auth),
+                    refresh_error: Some(error),
+                };
+            }
+        }
+    }
+
+    ResolvedDownloadAuth {
+        auth: Some(auth),
+        refresh_error: None,
+    }
+}
+
 /// 检查当前登录凭证是否已过期。
 ///
 /// 通过调用 `music.UserInfo.userInfoServer.GetLoginUserInfo` 接口验证凭证有效性。
 /// 若凭证不存在或接口返回非零 code（1000/104401/104400），则视为已过期。
+pub fn is_credential_rejection(error: &str) -> bool {
+    matches!(
+        error.strip_prefix("接口错误: code="),
+        Some("1000" | "104401" | "104400")
+    )
+}
+
 pub async fn check_credential_expired(store: &dyn LoginCredentialStore) -> Result<bool, String> {
     let Some(creds) = read_full_credentials(store).await else {
         return Ok(true);
@@ -830,7 +892,7 @@ pub async fn check_credential_expired(store: &dyn LoginCredentialStore) -> Resul
     {
         Ok(_) => Ok(false),
         Err(e) => {
-            if e.starts_with("接口错误:") {
+            if is_credential_rejection(&e) {
                 // 接口明确返回错误码，视为凭证已过期
                 log::warn!("[check_credential_expired] 凭证校验失败，视为已过期: {}", e);
                 Ok(true)
@@ -860,8 +922,8 @@ pub async fn refresh_credential(
         return Err("缺少刷新令牌，无法自动刷新".into());
     }
 
-    // 执行刷新流程，任意步骤失败都会清除凭证
-    let refresh_result = async {
+    // 刷新请求的网络、解析和存储失败保留凭据，供恢复后重试。
+    let refresh_result: Result<LoginCredentials, String> = async {
         let music_id = creds.uin.parse::<u64>().map_err(|_| "uin 必须为数字")?;
         // 从原始响应数据中获取 loginType，若缺失则默认为 0（走通用分支）
         let login_type = creds
@@ -925,9 +987,10 @@ pub async fn refresh_credential(
     match refresh_result {
         Ok(new_creds) => Ok(new_creds),
         Err(e) => {
-            // 刷新失败，清除存储的登录凭证，确保后续不再使用过期状态
-            let _ = logout(store).await;
-            log::warn!("[登录] 凭证刷新失败，已清除登录凭证: {}", e);
+            if is_credential_rejection(&e) {
+                let _ = logout(store).await;
+            }
+            log::warn!("[登录] 凭证刷新失败: {}", e);
             Err(e)
         }
     }
@@ -1348,6 +1411,42 @@ pub async fn get_login_status(store: &dyn LoginCredentialStore) -> Result<String
 mod tests {
     use super::{get_login_status, logout, FileLoginStore, LoginCredentialStore};
     use serde_json::json;
+
+    #[test]
+    fn only_explicit_auth_codes_prove_credentials_invalid() {
+        for code in [1000, 104400, 104401] {
+            assert!(super::is_credential_rejection(&format!(
+                "接口错误: code={code}"
+            )));
+        }
+        for error in [
+            "网络错误: timeout",
+            "接口错误: code=500",
+            "接口错误: code=-1",
+            "解析响应失败",
+        ] {
+            assert!(!super::is_credential_rejection(error));
+        }
+    }
+
+    #[tokio::test]
+    async fn refresh_failure_without_auth_rejection_preserves_stored_credentials() {
+        let path = std::env::temp_dir().join(format!(
+            "hotdownloader-login-{:x}.json",
+            rand::random::<u64>()
+        ));
+        let store = FileLoginStore::new(&path);
+        let saved = json!({"loginUin":"synthetic-invalid-number","authst":"synthetic","refreshToken":"synthetic-refresh","downloadDir":"music"});
+        store.save(&saved).unwrap();
+        // 在本地参数校验处失败，不向真实登录接口发送请求。
+        assert!(super::refresh_credential(&store)
+            .await
+            .err()
+            .expect("invalid local parameter must fail")
+            .contains("uin"));
+        assert_eq!(store.load().unwrap(), saved);
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[tokio::test]
     async fn file_store_keeps_non_login_settings_when_logging_out() {
