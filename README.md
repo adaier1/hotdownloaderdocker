@@ -43,9 +43,9 @@ Rust 服务同时托管 Web 页面与 API，浏览器只访问一个端口，无
 - **访问认证**：对外监听时必须设置用户名密码或令牌（见下）。
 
 ---
-| 首页 | 设置 | MCP | 通知 |
-| --- | --- | --- | --- |
-|<img src="ScreenShot_2026-09-26_200452_737.png" width="100%">|<img src="ScreenShot_2026-09-28_201851_849.png" width="100%">|<img src="ScreenShot_2026-09-28_201951_508.png" width="100%">|<img src="ScreenShot_2026-09-28_202004_470.png" width="100%">|
+| 首页 | 下载 | 搜索 | 曲库 | 设置 |
+| --- | --- | --- | --- | --- |
+|<img src="image/首页.png" width="100%">|<img src="image/下载.png" width="100%">|<img src="image/搜索.png" width="100%">|<img src="image/曲库.png" width="100%">|<img src="image/设置.png" width="100%">|
 ---
 
 ## 🚀 Docker 部署（推荐）
