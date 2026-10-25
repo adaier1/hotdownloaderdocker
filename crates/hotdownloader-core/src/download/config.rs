@@ -1,5 +1,27 @@
 use std::path::Path;
 
+/// 内嵌封面独立于列表缩略图；原图不可用时按平台支持的尺寸回退。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CoverQuality {
+    Source,
+    High,
+    #[default]
+    Original,
+}
+
+impl CoverQuality {
+    fn from_settings(settings: &serde_json::Value) -> Self {
+        match settings
+            .get("coverQuality")
+            .and_then(|value| value.as_str())
+        {
+            Some("source") => Self::Source,
+            Some("500") => Self::High,
+            _ => Self::Original,
+        }
+    }
+}
+
 /// 下载任务启动时使用的设置快照。任务运行期间保持同一份设置，避免中途改动目录或文件名。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DownloadConfig {
@@ -7,6 +29,7 @@ pub struct DownloadConfig {
     pub naming_template: String,
     pub saf_folder_uri: Option<String>,
     pub write_metadata: bool,
+    pub cover_quality: CoverQuality,
     pub download_lrc: bool,
 }
 
@@ -51,6 +74,7 @@ impl DownloadConfig {
                 .get("downloadLrc")
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false),
+            cover_quality: CoverQuality::from_settings(settings),
         }
     }
 }
@@ -62,7 +86,37 @@ pub trait DownloadConfigProvider: Send + Sync {
 
 #[cfg(test)]
 mod tests {
-    use super::DownloadConfig;
+    use super::{CoverQuality, DownloadConfig};
+
+    #[test]
+    fn cover_quality_defaults_to_original_and_reads_saved_choices() {
+        for value in [
+            serde_json::Value::Null,
+            serde_json::json!("unknown"),
+            serde_json::json!(500),
+        ] {
+            let config = DownloadConfig::from_settings(
+                &serde_json::json!({"coverQuality": value}),
+                "/tmp/music",
+            );
+            assert_eq!(config.cover_quality, CoverQuality::Original);
+        }
+        assert_eq!(
+            DownloadConfig::from_settings(&serde_json::json!({}), "/tmp/music").cover_quality,
+            CoverQuality::Original
+        );
+        for (value, expected) in [
+            ("source", CoverQuality::Source),
+            ("500", CoverQuality::High),
+            ("original", CoverQuality::Original),
+        ] {
+            let config = DownloadConfig::from_settings(
+                &serde_json::json!({"coverQuality": value}),
+                "/tmp/music",
+            );
+            assert_eq!(config.cover_quality, expected);
+        }
+    }
 
     #[test]
     fn invalid_directory_falls_back_without_losing_other_settings() {

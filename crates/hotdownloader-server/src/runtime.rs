@@ -12,7 +12,8 @@ use hotdownloader_core::download::config::{DownloadConfig, DownloadConfigProvide
 use hotdownloader_core::download::context::TaskContext;
 use hotdownloader_core::download::engine::{DownloadEngine, DownloadTaskRunner, TaskController};
 use hotdownloader_core::download::link::PlatformDownloadLinkProvider;
-use hotdownloader_core::download::ports::{DownloadProgressSink, NoopCompletionNotifier};
+use hotdownloader_core::download::fallback::TaskQualityFallback;
+use hotdownloader_core::download::ports::{DownloadProgressSink, DownloadWorkerPorts, NoopCompletionNotifier};
 use hotdownloader_core::download::worker::download_task;
 use hotdownloader_core::platforms::qqmusic::login::FileLoginStore;
 use hotdownloader_core::settings::patch::{
@@ -286,7 +287,12 @@ impl DownloadTaskRunner for ServerRunner {
         let config = self.settings.current();
         let links = self.links.clone();
         let progress = self.progress.clone();
+        let settings = self.settings.clone();
         Box::pin(async move {
+            let fallback = TaskQualityFallback::new(
+                &progress.tasks,
+                settings.as_ref(),
+            );
             let opener = LocalDownloadFileOpener;
             let deleter = LocalFileDeleter;
             let postprocessor = LocalDownloadPostprocessor;
@@ -294,11 +300,14 @@ impl DownloadTaskRunner for ServerRunner {
                 context,
                 controller,
                 config,
-                links.as_ref(),
-                progress.as_ref(),
-                &opener,
-                &deleter,
-                &postprocessor,
+                DownloadWorkerPorts {
+                    quality_fallback: Some(&fallback),
+                    link_provider: links.as_ref(),
+                    progress_sink: progress.as_ref(),
+                    file_opener: &opener,
+                    file_deleter: &deleter,
+                    postprocessor: &postprocessor,
+                },
             )
             .await
         })
@@ -316,6 +325,8 @@ pub struct ServerRuntime {
     pub environment: Arc<ServerEnvironment>,
     pub events: Arc<ServerEvents>,
     pub login_store: Arc<FileLoginStore>,
+    pub kugou_store: Arc<hotdownloader_core::platforms::kugou::login::Store>,
+    pub netease_store: Arc<hotdownloader_core::platforms::netease::login::Store>,
     pub auth: Arc<RwLock<crate::auth::AccessAuth>>,
     pub mcp_key: Arc<crate::mcp::McpKey>,
     pub notify: Arc<crate::notify::NotifyConfig>,
@@ -342,9 +353,19 @@ impl ServerRuntime {
             events: events.clone(),
             notify: notify.clone(),
         });
-        let links = Arc::new(PlatformDownloadLinkProvider::from_credentials_file(
-            data_dir.join("qq-credentials.json"),
+        let netease_store = Arc::new(hotdownloader_core::platforms::netease::login::Store::new(
+            data_dir.join("netease-credentials.json"),
         ));
+        let kugou_store = Arc::new(hotdownloader_core::platforms::kugou::login::Store::new(
+            data_dir.join("kugou-credentials.json"),
+        ));
+        let links = Arc::new(
+            PlatformDownloadLinkProvider::from_credentials_file(
+                data_dir.join("qq-credentials.json"),
+            )
+            .with_kugou_store(kugou_store.clone())
+            .with_netease_store(netease_store.clone()),
+        );
         let login_store = Arc::new(FileLoginStore::new(data_dir.join("qq-credentials.json")));
         let runner = Arc::new(ServerRunner {
             settings: environment.clone(),
@@ -363,6 +384,8 @@ impl ServerRuntime {
             environment,
             events,
             login_store,
+            kugou_store,
+            netease_store,
             settings_patch_lock: Mutex::new(()),
             auth: Arc::new(RwLock::new(auth)),
             auth_path,

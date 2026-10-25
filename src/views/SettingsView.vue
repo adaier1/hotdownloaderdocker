@@ -21,6 +21,22 @@
             </n-form>
         </div>
 
+        <!-- 酷狗账号登录：独立卡片，沿用账号设置的卡片样式 -->
+        <div class="set-card account-section">
+            <div class="set-card-title">酷狗账号</div>
+            <n-form :label-placement="isNarrow ? 'top' : 'left'">
+                <KugouLoginSetting />
+            </n-form>
+        </div>
+
+        <!-- 网易云账号登录：独立卡片，沿用账号设置的卡片样式 -->
+        <div class="set-card account-section">
+            <div class="set-card-title">网易云账号</div>
+            <n-form :label-placement="isNarrow ? 'top' : 'left'">
+                <NeteaseLoginSetting />
+            </n-form>
+        </div>
+
         <!-- 安全设置：仅 Web 版支持修改访问密码（桌面端不经过 HTTP 认证） -->
         <div v-if="!native" class="set-card">
             <div class="set-card-title">安全设置</div>
@@ -96,6 +112,8 @@ import ClearHistoryButton from '../components/settings/ClearHistoryButton.vue'
 import WriteMetadataSetting from '../components/settings/WriteMetadataSetting.vue'
 import DownloadLrcSetting from '../components/settings/DownloadLrcSetting.vue'
 import LoginSetting from '../components/settings/LoginSetting.vue'
+import KugouLoginSetting from '../components/settings/KugouLoginSetting.vue'
+import NeteaseLoginSetting from '../components/settings/NeteaseLoginSetting.vue'
 import SecuritySetting from '../components/settings/SecuritySetting.vue'
 import McpSetting from '../components/settings/McpSetting.vue'
 import FeishuNotifySetting from '../components/settings/FeishuNotifySetting.vue'

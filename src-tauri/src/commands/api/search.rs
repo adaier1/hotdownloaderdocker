@@ -1,8 +1,9 @@
 //! 搜索命令路由层
 
-use crate::platforms::Platform;
-use crate::utils::filename::get_artist_separator;
+use hotdownloader_core::platforms::{self, Platform};
 use tauri::{command, AppHandle};
+
+use crate::utils::settings::get_artist_separator;
 
 #[command]
 pub async fn search_songs(
@@ -12,15 +13,28 @@ pub async fn search_songs(
     page: u32,
     limit: u32,
 ) -> Result<String, String> {
-    let p = Platform::from_str(&platform)?;
+    let p = platform.parse::<Platform>()?;
     // 只在 IPC 边界读取 Tauri 设置；核心搜索函数只接收普通分隔符文本。
     let separator = get_artist_separator(&app);
     match p {
+        Platform::Netease => {
+            platforms::netease::search::search_songs(
+                &separator,
+                keyword,
+                page,
+                limit,
+                &super::login::netease_store(&app)?.cookie()?,
+            )
+            .await
+        }
         Platform::QqMusic => {
-            crate::platforms::qqmusic::search::search_songs(&separator, keyword, page, limit).await
+            platforms::qqmusic::search::search_songs(&separator, keyword, page, limit).await
         }
         Platform::Kuwo => {
-            crate::platforms::kuwo::search::search_songs(&separator, keyword, page, limit).await
+            platforms::kuwo::search::search_songs(&separator, keyword, page, limit).await
+        }
+        Platform::Kugou => {
+            platforms::kugou::search::search_songs(&separator, keyword, page, limit).await
         }
     }
 }
@@ -30,11 +44,19 @@ pub async fn search_songs(
 /// 搜索接口不再并发拉封面，改为按需调用此命令。返回的 URL 可直接用于 `<img :src>`。
 /// QQ 音乐场景下歌曲已自带 coverUrl，不应调用此命令。
 #[command]
-pub async fn fetch_cover(platform: String, song_id: u64) -> Result<String, String> {
-    let p = Platform::from_str(&platform)?;
+pub async fn fetch_cover(app: AppHandle, platform: String, song_id: u64) -> Result<String, String> {
+    let p = platform.parse::<Platform>()?;
     match p {
+        Platform::Netease => {
+            platforms::netease::cover::fetch_cover(
+                song_id,
+                &super::login::netease_store(&app)?.cookie()?,
+            )
+            .await
+        }
         Platform::QqMusic => Err("QQ 音乐封面已包含在搜索结果中，无需单独获取".into()),
-        Platform::Kuwo => crate::platforms::kuwo::cover::fetch_cover(song_id).await,
+        Platform::Kuwo => platforms::kuwo::cover::fetch_cover(song_id).await,
+        Platform::Kugou => Err("酷狗封面已包含在搜索结果中，无需单独获取".into()),
     }
 }
 
@@ -50,12 +72,25 @@ pub async fn search_albums(
         return Err("无效的分页参数".into());
     }
     let separator = get_artist_separator(&app);
-    match Platform::from_str(&platform)? {
+    match platform.parse::<Platform>()? {
+        Platform::Netease => {
+            platforms::netease::search::search_albums(
+                &separator,
+                keyword,
+                page,
+                limit,
+                &super::login::netease_store(&app)?.cookie()?,
+            )
+            .await
+        }
         Platform::QqMusic => {
-            crate::platforms::qqmusic::search::search_albums(&separator, keyword, page, limit).await
+            platforms::qqmusic::search::search_albums(&separator, keyword, page, limit).await
         }
         Platform::Kuwo => {
-            crate::platforms::kuwo::search::search_albums(&separator, keyword, page, limit).await
+            platforms::kuwo::search::search_albums(&separator, keyword, page, limit).await
+        }
+        Platform::Kugou => {
+            platforms::kugou::search::search_albums(&separator, keyword, page, limit).await
         }
     }
 }
@@ -67,29 +102,43 @@ pub async fn fetch_album_songs(
     id: String,
 ) -> Result<String, String> {
     let separator = get_artist_separator(&app);
-    match Platform::from_str(&platform)? {
-        Platform::QqMusic => {
-            crate::platforms::qqmusic::album::fetch_album_songs(&separator, id).await
+    match platform.parse::<Platform>()? {
+        Platform::Netease => {
+            platforms::netease::album::fetch_album_songs(
+                &separator,
+                id,
+                &super::login::netease_store(&app)?.cookie()?,
+            )
+            .await
         }
-        Platform::Kuwo => crate::platforms::kuwo::album::fetch_album_songs(&separator, id).await,
+        Platform::QqMusic => platforms::qqmusic::album::fetch_album_songs(&separator, id).await,
+        Platform::Kuwo => platforms::kuwo::album::fetch_album_songs(&separator, id).await,
+        Platform::Kugou => platforms::kugou::album::fetch_album_songs(&separator, id).await,
     }
 }
 
 #[command]
 pub async fn search_artists(
+    app: AppHandle,
     platform: String,
     keyword: String,
     page: u32,
     limit: u32,
 ) -> Result<String, String> {
     validate_artist_page(page, limit)?;
-    match Platform::from_str(&platform)? {
-        Platform::QqMusic => {
-            crate::platforms::qqmusic::search::search_artists(keyword, page, limit).await
+    match platform.parse::<Platform>()? {
+        Platform::Netease => {
+            platforms::netease::search::search_artists(
+                keyword,
+                page,
+                limit,
+                &super::login::netease_store(&app)?.cookie()?,
+            )
+            .await
         }
-        Platform::Kuwo => {
-            crate::platforms::kuwo::search::search_artists(keyword, page, limit).await
-        }
+        Platform::QqMusic => platforms::qqmusic::search::search_artists(keyword, page, limit).await,
+        Platform::Kuwo => platforms::kuwo::search::search_artists(keyword, page, limit).await,
+        Platform::Kugou => platforms::kugou::search::search_artists(keyword, page, limit).await,
     }
 }
 
@@ -103,12 +152,25 @@ pub async fn fetch_artist_songs(
 ) -> Result<String, String> {
     validate_artist_page(page, limit)?;
     let separator = get_artist_separator(&app);
-    match Platform::from_str(&platform)? {
+    match platform.parse::<Platform>()? {
+        Platform::Netease => {
+            platforms::netease::artist::fetch_artist_songs(
+                &separator,
+                id,
+                page,
+                limit,
+                &super::login::netease_store(&app)?.cookie()?,
+            )
+            .await
+        }
         Platform::QqMusic => {
-            crate::platforms::qqmusic::artist::fetch_artist_songs(&separator, id, page, limit).await
+            platforms::qqmusic::artist::fetch_artist_songs(&separator, id, page, limit).await
         }
         Platform::Kuwo => {
-            crate::platforms::kuwo::artist::fetch_artist_songs(&separator, id, page, limit).await
+            platforms::kuwo::artist::fetch_artist_songs(&separator, id, page, limit).await
+        }
+        Platform::Kugou => {
+            platforms::kugou::artist::fetch_artist_songs(&separator, id, page, limit).await
         }
     }
 }
@@ -123,13 +185,25 @@ pub async fn fetch_artist_albums(
 ) -> Result<String, String> {
     validate_artist_page(page, limit)?;
     let separator = get_artist_separator(&app);
-    match Platform::from_str(&platform)? {
+    match platform.parse::<Platform>()? {
+        Platform::Netease => {
+            platforms::netease::artist::fetch_artist_albums(
+                &separator,
+                id,
+                page,
+                limit,
+                &super::login::netease_store(&app)?.cookie()?,
+            )
+            .await
+        }
         Platform::QqMusic => {
-            crate::platforms::qqmusic::artist::fetch_artist_albums(&separator, id, page, limit)
-                .await
+            platforms::qqmusic::artist::fetch_artist_albums(&separator, id, page, limit).await
         }
         Platform::Kuwo => {
-            crate::platforms::kuwo::artist::fetch_artist_albums(&separator, id, page, limit).await
+            platforms::kuwo::artist::fetch_artist_albums(&separator, id, page, limit).await
+        }
+        Platform::Kugou => {
+            platforms::kugou::artist::fetch_artist_albums(&separator, id, page, limit).await
         }
     }
 }

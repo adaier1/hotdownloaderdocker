@@ -5,13 +5,14 @@ use std::path::Path;
 use futures_util::future::BoxFuture;
 use lofty::config::WriteOptions;
 use lofty::file::{AudioFile, TaggedFileExt};
-use lofty::picture::{MimeType, Picture, PictureType};
+use lofty::picture::{Picture, PictureType};
 use lofty::tag::{ItemKey, Tag, TagType};
 
 use crate::download::context::TaskContext;
 use crate::download::ports::{DownloadPostprocessor, DownloadProgressSink, PostprocessRequest};
-use crate::download::postprocess::{prepare_assets, PostprocessAssets};
+use crate::download::postprocess::{lrc_file_name, prepare_assets, PostprocessAssets};
 use crate::platforms::lyric::LyricData;
+
 /// 将普通 LRC 写在音频旁边；无歌词或写入失败都不改变音频下载结果。
 pub fn write_local_lrc(audio_path: &str, lyric: &LyricData) -> Option<String> {
     let content = lyric
@@ -19,12 +20,8 @@ pub fn write_local_lrc(audio_path: &str, lyric: &LyricData) -> Option<String> {
         .as_deref()
         .filter(|value| !value.trim().is_empty())?;
     let audio = Path::new(audio_path);
-    let stem = audio
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .unwrap_or("unknown");
     let parent = audio.parent().unwrap_or_else(|| Path::new("."));
-    let lrc_path = parent.join(format!("{stem}.lrc"));
+    let lrc_path = parent.join(lrc_file_name(audio_path));
 
     match std::fs::write(&lrc_path, content) {
         Ok(()) => {
@@ -95,12 +92,9 @@ pub fn write_audio_metadata(
         tag.insert_text(ItemKey::Lyrics, lyric.to_string());
     }
     if let Some(bytes) = &assets.cover_bytes {
-        let picture = Picture::new_unchecked(
-            PictureType::CoverFront,
-            Some(MimeType::Jpeg),
-            None,
-            bytes.clone(),
-        );
+        let mut picture = Picture::from_reader(&mut bytes.as_slice())
+            .map_err(|error| format!("读取封面图片失败: {error}"))?;
+        picture.set_pic_type(PictureType::CoverFront);
         tag.remove_picture_type(PictureType::CoverFront);
         tag.push_picture(picture);
     }
@@ -126,6 +120,7 @@ impl DownloadPostprocessor for LocalDownloadPostprocessor {
                 request.context,
                 request.config.write_metadata,
                 request.config.download_lrc,
+                request.config.cover_quality,
             )
             .await;
 

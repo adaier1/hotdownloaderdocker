@@ -18,10 +18,12 @@ pub trait DownloadLinkProvider: Send + Sync {
     ) -> BoxFuture<'a, Result<(String, String), String>>;
 }
 
-/// 两个平台共用的 HTTP 链接提供器。运行时只注入凭据来源；下载任务不接触令牌。
+/// 平台共用的 HTTP 链接提供器。运行时只注入凭据来源；下载任务不接触令牌。
 pub struct PlatformDownloadLinkProvider {
     client: Client,
     qq_credentials: Arc<dyn QqCredentialSource>,
+    kugou_store: Option<Arc<crate::platforms::kugou::login::Store>>,
+    netease_store: Option<Arc<crate::platforms::netease::login::Store>>,
 }
 
 impl PlatformDownloadLinkProvider {
@@ -30,6 +32,8 @@ impl PlatformDownloadLinkProvider {
         Self {
             client,
             qq_credentials,
+            kugou_store: None,
+            netease_store: None,
         }
     }
 
@@ -40,6 +44,8 @@ impl PlatformDownloadLinkProvider {
         Self {
             client,
             qq_credentials,
+            kugou_store: None,
+            netease_store: None,
         }
     }
 
@@ -48,7 +54,22 @@ impl PlatformDownloadLinkProvider {
         Self {
             client,
             qq_credentials,
+            kugou_store: None,
+            netease_store: None,
         }
+    }
+
+    pub fn with_kugou_store(mut self, store: Arc<crate::platforms::kugou::login::Store>) -> Self {
+        self.kugou_store = Some(store);
+        self
+    }
+
+    pub fn with_netease_store(
+        mut self,
+        store: Arc<crate::platforms::netease::login::Store>,
+    ) -> Self {
+        self.netease_store = Some(store);
+        self
     }
 }
 
@@ -70,6 +91,31 @@ impl DownloadLinkProvider for PlatformDownloadLinkProvider {
     ) -> BoxFuture<'a, Result<(String, String), String>> {
         Box::pin(async move {
             match platform {
+                Platform::Netease => {
+                    let cookie = self
+                        .netease_store
+                        .as_ref()
+                        .map(|s| s.cookie())
+                        .transpose()?
+                        .unwrap_or_default();
+                    crate::platforms::netease::link::get_download_link(song_mid, filename, &cookie)
+                        .await
+                }
+                Platform::Kugou => {
+                    let params = self
+                        .kugou_store
+                        .as_ref()
+                        .map(|s| s.request_params())
+                        .transpose()?
+                        .unwrap_or_else(|| serde_json::json!({}));
+                    crate::platforms::kugou::link::get_download_link_with_credentials(
+                        &self.client,
+                        song_mid,
+                        filename,
+                        params,
+                    )
+                    .await
+                }
                 Platform::QqMusic => {
                     let credentials = self.qq_credentials.current().await?;
                     crate::platforms::qqmusic::link::fetch_vkey_link(
@@ -240,6 +286,11 @@ mod tests {
             .await
             .unwrap_err();
         assert!(error.contains("无效的歌曲 ID"));
+        let error = provider
+            .fetch(Platform::Kugou, "invalid-hash", "invalid.mp3")
+            .await
+            .unwrap_err();
+        assert!(error.contains("无效的酷狗音源标识"));
         tokio::fs::remove_file(path).await.unwrap();
     }
 }

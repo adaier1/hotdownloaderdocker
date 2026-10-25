@@ -1,6 +1,7 @@
 use std::io::{Seek, Write};
 use std::path::Path;
 
+use hotdownloader_core::download::postprocess::lrc_file_name;
 use tauri::AppHandle;
 use tauri_plugin_android_fs::{AndroidFsExt, FileAccessMode, FsUri};
 
@@ -12,13 +13,6 @@ pub(crate) async fn write_saf_lrc_file(
     song_file_path: &str,
     saf_folder_uri: Option<String>,
 ) -> Option<String> {
-    // 提取歌曲文件名的 stem（不含扩展名）
-    let song_name = Path::new(song_file_path);
-    let stem = song_name
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("unknown");
-
     // SAF 模式：在已授权的 SAF 目录中创建同名 .lrc 文件
     let parent_uri = match saf_folder_uri.as_deref() {
         Some(s) => match FsUri::from_json_str(s) {
@@ -34,11 +28,11 @@ pub(crate) async fn write_saf_lrc_file(
         }
     };
 
-    let lrc_file_name = format!("{}.lrc", stem);
+    let lrc_name = lrc_file_name(song_file_path);
     let api = app_handle.android_fs();
 
     // 尝试解析已存在的 LRC 文件，若存在则打开可写并清空；否则创建新文件
-    let file_path = std::path::Path::new(&lrc_file_name);
+    let file_path = Path::new(&lrc_name);
     let file_uri_opt = api.resolve_file_uri(&parent_uri, file_path).ok();
 
     match file_uri_opt {

@@ -3,36 +3,38 @@ use std::io::{BufWriter, Write};
 use std::sync::atomic::Ordering;
 
 use super::decryption;
+use super::fallback::{FallbackOutcome, QUALITY_EXHAUSTED};
 use crate::download::config::DownloadConfig;
 use crate::download::context::TaskContext;
 use crate::download::engine::TaskController;
-use crate::download::link::{fetch_download_link_with_retry, DownloadLinkProvider};
+use crate::download::link::fetch_download_link_with_retry;
 use crate::download::path::resolve_download_path;
-use crate::download::ports::{
-    DownloadFileOpener, DownloadPostprocessor, DownloadProgressSink, FileDeleter, FileOpenRequest,
-    PostprocessRequest,
-};
+use crate::download::ports::{DownloadWorkerPorts, FileOpenRequest, PostprocessRequest};
 use crate::download::transfer::{
     classify_http_response, request_download_response, write_response_stream, ResponseAction,
-    StreamOutcome,
+    StreamOutcome, StreamWriteContext,
 };
 
 /// 与 Tauri 无关的完整下载任务循环。运行时提供设置、链接、文件、状态和收尾端口。
 /// 返回任务是否成功完成，供调度器决定是否清理任务上下文。
 pub async fn download_task(
-    ctx: TaskContext,
+    mut ctx: TaskContext,
     controller: TaskController,
     config: DownloadConfig,
-    link_provider: &dyn DownloadLinkProvider,
-    progress_sink: &dyn DownloadProgressSink,
-    file_opener: &dyn DownloadFileOpener,
-    file_deleter: &dyn FileDeleter,
-    postprocessor: &dyn DownloadPostprocessor,
+    ports: DownloadWorkerPorts<'_>,
 ) -> bool {
-    // 1. 构建最终保存路径（只需一次）
+    let DownloadWorkerPorts {
+        quality_fallback,
+        link_provider,
+        progress_sink,
+        file_opener,
+        file_deleter,
+        postprocessor,
+    } = ports;
+    // 1. 构建初始保存路径；降级后使用新品质已持久化的路径。
     // 创建任务时已经确定目标路径；Android SAF 任务需保留 URI 上下文，
     // 否则重试时会把相对文件名当成本地文件系统路径。
-    let (is_saf, download_dir, saf_folder_uri) = if !ctx.save_path.is_empty() {
+    let (is_saf, mut download_dir, saf_folder_uri) = if !ctx.save_path.is_empty() {
         if config.download_dir == "saf://"
             && cfg!(target_os = "android")
             && config.saf_folder_uri.is_some()
@@ -78,6 +80,7 @@ pub async fn download_task(
     let mut stream_retries: u32 = 0;
 
     let mut completed_ok = false; // 标记下载是否真正完成
+    let mut attempted = std::collections::HashSet::from([ctx.quality.clone()]);
 
     // 下载循环
     'download: loop {
@@ -95,21 +98,84 @@ pub async fn download_task(
 
         // 如果没有有效链接，实时获取（首次进入或暂停恢复后）
         if url.is_empty() {
-            match fetch_download_link_with_retry(
-                link_provider,
-                &ctx.song_mid,
-                &ctx.quality_filename,
-                &ctx.task_id,
-                ctx.platform, // 添加平台参数
-            )
-            .await
-            {
+            let link_result = tokio::select! {
+                biased;
+                _ = controller.cancel_token.cancelled() => break 'download,
+                result = fetch_download_link_with_retry(
+                    link_provider,
+                    &ctx.song_mid,
+                    &ctx.quality_filename,
+                    &ctx.task_id,
+                    ctx.platform,
+                ) => result,
+            };
+            match link_result {
                 Ok((new_url, new_key)) => {
                     url = new_url;
                     key = new_key;
                     log::info!("任务 {} 获取到新下载链接", ctx.task_id);
                 }
                 Err(e) => {
+                    if controller.pause_flag.load(Ordering::SeqCst) {
+                        if controller.wait_for_resume_or_cancel().await {
+                            break 'download;
+                        }
+                    }
+                    if let Some(fallback) = quality_fallback.filter(|_| {
+                        !e.contains("凭据") && !e.contains("凭证") && !e.contains("登录")
+                    }) {
+                        // 关闭旧文件后才能切换品质；旧片段保留，下一品质从零另存。
+                        drop(file.take());
+                        let result = tokio::select! {
+                            biased;
+                            _ = controller.cancel_token.cancelled() => break 'download,
+                            result = fallback.next(&ctx, &config) => result,
+                        };
+                        match result {
+                            Ok(FallbackOutcome::Next(next)) => {
+                                if !attempted.insert(next.quality.clone()) {
+                                    progress_sink
+                                        .error(&ctx.task_id, "音质降级出现重复候选，已停止");
+                                    break 'download;
+                                }
+                                log::info!(
+                                    "任务 {} 获取 {} 链接失败，降级至 {}",
+                                    ctx.task_id,
+                                    ctx.quality,
+                                    next.quality
+                                );
+                                ctx = next;
+                                download_dir = ctx.save_path.clone();
+                                downloaded = 0;
+                                stream_retries = 0;
+                                saf_file_uri = None;
+                                *controller.final_path.lock().await = None;
+                                if !is_saf && file_opener.prepare_parent(&download_dir).is_err() {
+                                    progress_sink.error(&ctx.task_id, "下载目录无法访问");
+                                    break 'download;
+                                }
+                                continue 'download;
+                            }
+                            Ok(FallbackOutcome::Exhausted) => {
+                                progress_sink.error(
+                                    &ctx.task_id,
+                                    &format!(
+                                        "{QUALITY_EXHAUSTED}，最后音质 {} 获取链接失败: {e}",
+                                        ctx.quality
+                                    ),
+                                );
+                                break 'download;
+                            }
+                            Err(error) => {
+                                progress_sink.error(
+                                    &ctx.task_id,
+                                    &format!("切换音质失败: {error}；原错误: {e}"),
+                                );
+                                break 'download;
+                            }
+                            Ok(FallbackOutcome::Disabled) => {}
+                        }
+                    }
                     // 将具体错误信息发送到前端，便于用户了解失败原因
                     log::error!("任务 {} 最终获取下载链接失败: {}", ctx.task_id, e);
                     progress_sink.error(&ctx.task_id, &format!("获取下载链接失败: {}", e));
@@ -225,12 +291,14 @@ pub async fn download_task(
             response,
             writer,
             &mut downloaded,
-            total,
-            &decrypt_ctx,
-            &controller,
-            progress_sink,
-            &ctx.task_id,
             &mut stream_retries,
+            StreamWriteContext {
+                total,
+                decrypt_context: &decrypt_ctx,
+                controller: &controller,
+                progress_sink,
+                task_id: &ctx.task_id,
+            },
         )
         .await;
         match outcome {
@@ -319,7 +387,7 @@ pub async fn download_task(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex as StdMutex};
 
     use futures_util::future::BoxFuture;
@@ -333,7 +401,9 @@ mod tests {
     use crate::download::context::{SongInfo, TaskContext};
     use crate::download::engine::TaskController;
     use crate::download::link::DownloadLinkProvider;
-    use crate::download::ports::{DownloadProgressSink, NoopDownloadPostprocessor};
+    use crate::download::ports::{
+        DownloadProgressSink, DownloadWorkerPorts, NoopDownloadPostprocessor,
+    };
     use crate::platforms::Platform;
 
     struct RejectedLink;
@@ -352,12 +422,18 @@ mod tests {
     #[derive(Default)]
     struct RecordingSink {
         errors: StdMutex<Vec<String>>,
+        file_completions: AtomicUsize,
+        completions: AtomicUsize,
     }
 
     impl DownloadProgressSink for RecordingSink {
         fn progress(&self, _task_id: &str, _downloaded: u64, _total: u64, _speed: u64) {}
-        fn file_complete(&self, _task_id: &str) {}
-        fn completed(&self, _task_id: &str, _final_path: &str, _saf_folder_uri: Option<String>) {}
+        fn file_complete(&self, _task_id: &str) {
+            self.file_completions.fetch_add(1, Ordering::Relaxed);
+        }
+        fn completed(&self, _task_id: &str, _final_path: &str, _saf_folder_uri: Option<String>) {
+            self.completions.fetch_add(1, Ordering::Relaxed);
+        }
         fn error(&self, _task_id: &str, message: &str) {
             self.errors.lock().unwrap().push(message.to_string());
         }
@@ -405,6 +481,7 @@ mod tests {
             naming_template: "{song} - {artist}".into(),
             saf_folder_uri: None,
             write_metadata: false,
+            cover_quality: Default::default(),
             download_lrc: false,
         };
         let sink = RecordingSink::default();
@@ -414,11 +491,14 @@ mod tests {
             context,
             controller,
             config,
-            &RejectedLink,
-            &sink,
-            &LocalDownloadFileOpener,
-            &LocalFileDeleter,
-            &NoopDownloadPostprocessor,
+            DownloadWorkerPorts {
+                quality_fallback: None,
+                link_provider: &RejectedLink,
+                progress_sink: &sink,
+                file_opener: &LocalDownloadFileOpener,
+                file_deleter: &LocalFileDeleter,
+                postprocessor: &NoopDownloadPostprocessor,
+            },
         )
         .await;
         assert!(!completed);
@@ -426,5 +506,168 @@ mod tests {
             sink.errors.lock().unwrap().as_slice(),
             ["获取下载链接失败: 平台拒绝"]
         );
+    }
+
+    struct LocalLink(String);
+    impl DownloadLinkProvider for LocalLink {
+        fn fetch<'a>(
+            &'a self,
+            _: Platform,
+            _: &'a str,
+            _: &'a str,
+        ) -> BoxFuture<'a, Result<(String, String), String>> {
+            Box::pin(async { Ok((self.0.clone(), String::new())) })
+        }
+    }
+
+    struct ReadOnlyFile {
+        capacity: usize,
+    }
+    impl crate::download::ports::DownloadFileOpener for ReadOnlyFile {
+        fn prepare_parent(&self, _: &str) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn open<'a>(
+            &'a self,
+            request: crate::download::ports::FileOpenRequest<'a>,
+            _: &'a dyn DownloadProgressSink,
+        ) -> BoxFuture<'a, Option<crate::download::ports::OpenedDownloadFile>> {
+            Box::pin(async move {
+                Some(crate::download::ports::OpenedDownloadFile {
+                    writer: std::io::BufWriter::with_capacity(
+                        self.capacity,
+                        std::fs::File::open(request.file_path).unwrap(),
+                    ),
+                    downloaded: 0,
+                    saf_file_uri: None,
+                })
+            })
+        }
+    }
+
+    async fn assert_disk_write_failure(capacity: usize, expected: &str) {
+        use std::io::{Read, Write};
+        use std::time::{Duration, Instant};
+        let path = std::env::temp_dir().join(format!(
+            "hotdownloader-readonly-{:x}.mp3",
+            rand::random::<u64>()
+        ));
+        std::fs::write(&path, b"original sentinel").unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/synthetic.mp3", listener.local_addr().unwrap());
+        listener.set_nonblocking(true).unwrap();
+        let server = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                            && Instant::now() < deadline =>
+                    {
+                        std::thread::sleep(Duration::from_millis(5))
+                    }
+                    Err(error) => panic!("local HTTP accept failed: {error}"),
+                }
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = Vec::new();
+            while !request.windows(4).any(|part| part == b"\r\n\r\n") {
+                let mut bytes = [0u8; 1024];
+                let count = stream.read(&mut bytes).unwrap();
+                assert!(count > 0 && request.len() < 16 * 1024);
+                request.extend_from_slice(&bytes[..count]);
+            }
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\ntest")
+                .unwrap();
+        });
+        let context = TaskContext {
+            task_id: "write-failure".into(),
+            platform: Platform::QqMusic,
+            song_mid: "syntheticMid".into(),
+            song_id: 1,
+            url: String::new(),
+            save_path: path.to_string_lossy().into(),
+            quality: "320kmp3".into(),
+            key: String::new(),
+            file_size: 4,
+            downloaded_offset: 0,
+            song_info: SongInfo {
+                title: "Synthetic".into(),
+                artist: "Fixture".into(),
+                album: String::new(),
+                quality: "320kmp3".into(),
+                cover_url: String::new(),
+            },
+            quality_filename: "synthetic.mp3".into(),
+            final_path: Arc::new(Mutex::new(None)),
+        };
+        let controller = TaskController {
+            cancel_token: CancellationToken::new(),
+            pause_flag: Arc::new(AtomicBool::new(false)),
+            resume_notify: Arc::new(Notify::new()),
+            url_ready: Arc::new(Notify::new()),
+            delete_file_on_cancel: Arc::new(AtomicBool::new(false)),
+            final_path: Arc::new(Mutex::new(None)),
+            lrc_final_path: Arc::new(Mutex::new(None)),
+            started: Arc::new(AtomicBool::new(true)),
+            done: Arc::new(Notify::new()),
+        };
+        let sink = RecordingSink::default();
+        let completed = tokio::time::timeout(
+            Duration::from_secs(5),
+            download_task(
+                context,
+                controller,
+                DownloadConfig {
+                    download_dir: std::env::temp_dir().to_string_lossy().into(),
+                    naming_template: "{song}".into(),
+                    saf_folder_uri: None,
+                    write_metadata: false,
+                    cover_quality: Default::default(),
+                    download_lrc: false,
+                },
+                DownloadWorkerPorts {
+                    quality_fallback: None,
+                    link_provider: &LocalLink(url),
+                    progress_sink: &sink,
+                    file_opener: &ReadOnlyFile { capacity },
+                    file_deleter: &LocalFileDeleter,
+                    postprocessor: &NoopDownloadPostprocessor,
+                },
+            ),
+        )
+        .await
+        .unwrap();
+        server.join().unwrap();
+        let contents = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert!(!completed);
+        assert_eq!(contents, b"original sentinel");
+        assert_eq!(sink.file_completions.load(Ordering::Relaxed), 0);
+        assert_eq!(sink.completions.load(Ordering::Relaxed), 0);
+        let errors = sink.errors.lock().unwrap();
+        assert_eq!(errors.len(), 1);
+        assert!(
+            errors[0].starts_with(expected),
+            "unexpected error: {}",
+            errors[0]
+        );
+    }
+
+    #[tokio::test]
+    async fn worker_does_not_complete_after_os_write_failure() {
+        assert_disk_write_failure(1, "写入文件失败").await;
+    }
+
+    #[tokio::test]
+    async fn worker_does_not_complete_after_buffer_flush_failure() {
+        assert_disk_write_failure(1024, "刷新文件缓冲区失败").await;
     }
 }

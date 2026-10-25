@@ -175,7 +175,7 @@ async fn run_music(runtime: &ServerRuntime, action: &str, args: Value) -> Result
     let request = serde_json::from_value::<music::MusicRequest>(args)
         .map_err(|error| format!("参数解析失败: {error}"))?;
     let separator = runtime.environment.artist_separator();
-    music::execute(action, request, &separator).await
+    music::execute(action, request, &separator, runtime.login_store.as_ref(), runtime.netease_store.as_ref()).await
 }
 
 async fn create_download_task(runtime: &ServerRuntime, args: Value) -> Result<Value, String> {

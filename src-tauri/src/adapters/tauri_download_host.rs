@@ -4,8 +4,8 @@ use hotdownloader_core::download::link::{DownloadLinkProvider, PlatformDownloadL
 use hotdownloader_core::platforms::qqmusic::credentials::{QqAuth, QqCredentialSource};
 use hotdownloader_core::platforms::Platform;
 use std::sync::Arc;
-use tauri::AppHandle;
 use tauri::Emitter;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_android_fs::{AndroidFsExt, FsUri};
 
 use crate::download::progress;
@@ -15,8 +15,8 @@ use hotdownloader_core::adapters::local::file_deleter::LocalFileDeleter;
 use hotdownloader_core::download::context::TaskContext;
 use hotdownloader_core::download::engine::{DownloadTaskRunner, TaskController};
 use hotdownloader_core::download::ports::{
-    CompletionNotifier, DownloadFileOpener, DownloadProgressSink, FileDeleter, FileOpenRequest,
-    OpenedDownloadFile,
+    CompletionNotifier, DownloadFileOpener, DownloadProgressSink, DownloadWorkerPorts, FileDeleter,
+    FileOpenRequest, OpenedDownloadFile,
 };
 use hotdownloader_core::download::worker::download_task;
 
@@ -44,15 +44,24 @@ impl DownloadTaskRunner for TauriTaskRunner {
             let file_deleter = TauriFileDeleter::new(app.clone());
             let file_opener = TauriDownloadFileOpener::new(app.clone());
             let postprocessor = TauriDownloadPostprocessor::new(app.clone());
+            let tasks = app.state::<hotdownloader_core::task::state::TaskState>();
+            let environment = crate::download::task_service::TauriTaskEnvironment::new(app.clone());
+            let fallback = hotdownloader_core::download::fallback::TaskQualityFallback::new(
+                &tasks,
+                &environment,
+            );
             download_task(
                 context,
                 controller,
                 config,
-                &link_provider,
-                &progress_sink,
-                &file_opener,
-                &file_deleter,
-                &postprocessor,
+                DownloadWorkerPorts {
+                    quality_fallback: Some(&fallback),
+                    link_provider: &link_provider,
+                    progress_sink: &progress_sink,
+                    file_opener: &file_opener,
+                    file_deleter: &file_deleter,
+                    postprocessor: &postprocessor,
+                },
             )
             .await
         })
@@ -85,26 +94,7 @@ impl DownloadFileOpener for TauriDownloadFileOpener {
         request: FileOpenRequest<'a>,
         progress_sink: &'a dyn DownloadProgressSink,
     ) -> BoxFuture<'a, Option<OpenedDownloadFile>> {
-        Box::pin(async move {
-            let mut downloaded = request.downloaded;
-            let mut saf_file_uri = None;
-            let writer = open_download_file(
-                &self.app,
-                progress_sink,
-                request.task_id,
-                request.file_path,
-                request.is_saf,
-                request.saf_folder_uri,
-                &mut downloaded,
-                &mut saf_file_uri,
-            )
-            .await?;
-            Some(OpenedDownloadFile {
-                writer,
-                downloaded,
-                saf_file_uri,
-            })
-        })
+        Box::pin(async move { open_download_file(&self.app, request, progress_sink).await })
     }
 }
 
@@ -168,6 +158,7 @@ impl DownloadConfigProvider for TauriDownloadConfigProvider {
 /// 桌面端只提供当前 QQ 凭据；平台选择和链接 HTTP 请求统一位于共享核心。
 pub struct TauriDownloadLinkProvider {
     provider: PlatformDownloadLinkProvider,
+    app: AppHandle,
 }
 
 struct TauriQqCredentialSource {
@@ -176,9 +167,10 @@ struct TauriQqCredentialSource {
 
 impl TauriDownloadLinkProvider {
     pub fn new(app: AppHandle) -> Self {
-        let credentials = Arc::new(TauriQqCredentialSource { app });
+        let credentials = Arc::new(TauriQqCredentialSource { app: app.clone() });
         Self {
             provider: PlatformDownloadLinkProvider::new(credentials),
+            app,
         }
     }
 }
@@ -186,34 +178,16 @@ impl TauriDownloadLinkProvider {
 impl QqCredentialSource for TauriQqCredentialSource {
     fn current(&self) -> BoxFuture<'_, Result<Option<QqAuth>, String>> {
         Box::pin(async move {
-            let (mut uin, mut authst) =
-                crate::platforms::qqmusic::login::get_login_credentials(&self.app).await;
-            if let (Some(user), Some(token)) = (&uin, &authst) {
-                if !user.is_empty() && !token.is_empty() {
-                    let expired =
-                        crate::platforms::qqmusic::login::check_credential_expired(&self.app)
-                            .await
-                            .unwrap_or(false);
-                    if expired {
-                        // 刷新失败时仍尝试旧凭据，并保留旧客户端的窗口提示事件。
-                        match crate::platforms::qqmusic::login::refresh_credential(&self.app).await
-                        {
-                            Ok(credentials) => {
-                                uin = Some(credentials.uin);
-                                authst = Some(credentials.authst);
-                            }
-                            Err(error) => {
-                                log::warn!("QQ音乐凭证刷新失败，继续使用旧凭证: {error}");
-                                let _ = self.app.emit(
-                                    crate::events::LOGIN_REFRESH_FAILED,
-                                    format!("QQ音乐登录已过期，自动刷新失败：{error}"),
-                                );
-                            }
-                        }
-                    }
-                }
+            let resolved = crate::platforms::qqmusic::login::download_auth(&self.app).await;
+            if let Some(error) = resolved.refresh_error {
+                // 核心保留旧凭据；Tauri 负责向当前窗口报告刷新失败。
+                log::warn!("QQ音乐凭证刷新失败，继续使用旧凭证: {error}");
+                let _ = self.app.emit(
+                    crate::events::LOGIN_REFRESH_FAILED,
+                    format!("QQ音乐登录已过期，自动刷新失败：{error}"),
+                );
             }
-            Ok(uin.zip(authst).map(|(uin, authst)| QqAuth { uin, authst }))
+            Ok(resolved.auth)
         })
     }
 }
@@ -225,6 +199,31 @@ impl DownloadLinkProvider for TauriDownloadLinkProvider {
         song_mid: &'a str,
         filename: &'a str,
     ) -> BoxFuture<'a, Result<(String, String), String>> {
+        if platform == Platform::Netease {
+            return Box::pin(async move {
+                let cookie = crate::commands::api::login::netease_store(&self.app)?.cookie()?;
+                hotdownloader_core::platforms::netease::link::get_download_link(
+                    song_mid, filename, &cookie,
+                )
+                .await
+            });
+        }
+        if platform == Platform::Kugou {
+            return Box::pin(async move {
+                let store = crate::commands::api::login::kugou_store(&self.app)?;
+                let params = store.request_params()?;
+                hotdownloader_core::platforms::kugou::link::get_download_link_with_credentials(
+                    &reqwest::Client::builder()
+                        .timeout(std::time::Duration::from_secs(30))
+                        .build()
+                        .map_err(|e| e.to_string())?,
+                    song_mid,
+                    filename,
+                    params,
+                )
+                .await
+            });
+        }
         self.provider.fetch(platform, song_mid, filename)
     }
 }
