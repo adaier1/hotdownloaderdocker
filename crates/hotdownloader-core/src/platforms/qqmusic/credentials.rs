@@ -1,7 +1,9 @@
 //! QQ 音乐下载凭据端口及独立进程的 JSON 文件实现。
 //! 文件字段沿用桌面设置中的 loginUin/authst/refreshToken 等名称，便于迁移已有登录态。
 
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
+use std::path::PathBuf;
 
 use futures_util::future::BoxFuture;
 use reqwest::Client;
@@ -53,6 +55,7 @@ impl FileQqCredentialSource {
         Ok(value)
     }
 
+    #[cfg(test)]
     async fn save_settings(&self, settings: &Value) -> Result<(), String> {
         let bytes = serde_json::to_vec_pretty(settings).map_err(|error| error.to_string())?;
         let parent = self.path.parent().unwrap_or_else(|| Path::new("."));
@@ -172,6 +175,7 @@ impl FileQqCredentialSource {
     }
 
     async fn refresh(&self, settings: &mut Value, old: &QqAuth) -> Result<QqAuth, String> {
+        let expected = settings.clone();
         let refresh_token = settings["refreshToken"].as_str().unwrap_or("");
         let refresh_key = settings["refreshKey"].as_str().unwrap_or("");
         if refresh_token.is_empty() && refresh_key.is_empty() {
@@ -214,7 +218,10 @@ impl FileQqCredentialSource {
             }
         }
         settings["loginResponseData"] = data;
-        self.save_settings(settings).await?;
+        use super::login::{FileLoginStore, LoginCredentialStore};
+        if !FileLoginStore::new(&self.path).save_if_current(&expected, settings)? {
+            return Err("登录状态已更新，忽略旧的续期结果".into());
+        }
         Ok(new_auth)
     }
 }
@@ -256,6 +263,7 @@ impl QqCredentialSource for FileQqCredentialSource {
     fn current(&self) -> BoxFuture<'_, Result<Option<QqAuth>, String>> {
         Box::pin(async move {
             // 检查与刷新必须串行，否则并发下载可能同时使用一次性刷新令牌。
+            let _shared_guard = super::login::REFRESH_MUTEX.lock().await;
             let _guard = self.refresh_lock.lock().await;
             let mut settings = self.load_settings().await?;
             let auth = match (settings["loginUin"].as_str(), settings["authst"].as_str()) {

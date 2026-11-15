@@ -8,6 +8,7 @@ pub use platform::Platform;
 
 pub mod kugou;
 pub mod kuwo;
+pub mod login_status;
 pub mod lyric;
 pub mod netease;
 pub mod qqmusic;

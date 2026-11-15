@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_tungstenite::tokio::{connect_async, ConnectStream};
@@ -31,20 +31,70 @@ use crate::platforms::CLIENT;
 pub trait LoginCredentialStore: Send + Sync {
     fn load(&self) -> Result<Value, String>;
     fn save(&self, settings: &Value) -> Result<(), String>;
+    /// 刷新网络请求期间可能发生退出/重新登录；仅替换仍属于原会话的凭据。
+    fn save_if_current(&self, expected: &Value, next: &Value) -> Result<bool, String> {
+        let current = self.load()?;
+        if !credential_snapshot_matches(&current, expected) {
+            return Ok(false);
+        }
+        self.save(&merge_credentials(current, next)?)?;
+        Ok(true)
+    }
+}
+
+const CREDENTIAL_FIELDS: [&str; 7] = [
+    "loginUin",
+    "authst",
+    "refreshToken",
+    "refreshKey",
+    "accessToken",
+    "openid",
+    "loginResponseData",
+];
+pub(crate) static REFRESH_MUTEX: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+type StoreLock = std::sync::Mutex<()>;
+static STORE_LOCKS: Lazy<std::sync::Mutex<HashMap<PathBuf, Weak<StoreLock>>>> =
+    Lazy::new(|| std::sync::Mutex::new(HashMap::new()));
+
+/// 仅比较账号会话字段，普通下载设置变更不应阻止续期。
+pub fn credential_snapshot_matches(current: &Value, expected: &Value) -> bool {
+    CREDENTIAL_FIELDS
+        .iter()
+        .all(|key| current.get(*key) == expected.get(*key))
+}
+
+/// 合并凭据时保留最新的普通设置；退出时同步移除源中不存在的凭据字段。
+pub fn merge_credentials(mut current: Value, next: &Value) -> Result<Value, String> {
+    let target = current.as_object_mut().ok_or("登录设置必须是 JSON 对象")?;
+    for key in CREDENTIAL_FIELDS {
+        if let Some(value) = next.get(key) {
+            target.insert(key.into(), value.clone());
+        } else {
+            target.remove(key);
+        }
+    }
+    Ok(current)
 }
 
 /// 独立进程使用的本地 JSON 凭据文件。与下载链接凭据源读取同一份文件。
 pub struct FileLoginStore {
     path: PathBuf,
-    write_lock: std::sync::Mutex<()>,
+    write_lock: Arc<StoreLock>,
 }
 
 impl FileLoginStore {
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self {
-            path: path.into(),
-            write_lock: std::sync::Mutex::new(()),
-        }
+        let path = path.into();
+        let mut locks = STORE_LOCKS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        let write_lock = locks.get(&path).and_then(Weak::upgrade).unwrap_or_else(|| {
+            let lock = Arc::new(std::sync::Mutex::new(()));
+            locks.insert(path.clone(), Arc::downgrade(&lock));
+            lock
+        });
+        Self { path, write_lock }
     }
 }
 
@@ -65,6 +115,22 @@ impl LoginCredentialStore for FileLoginStore {
 
     fn save(&self, settings: &Value) -> Result<(), String> {
         let _guard = self.write_lock.lock().map_err(|error| error.to_string())?;
+        self.write_unlocked(settings)
+    }
+
+    fn save_if_current(&self, expected: &Value, next: &Value) -> Result<bool, String> {
+        let _guard = self.write_lock.lock().map_err(|error| error.to_string())?;
+        let current = self.load()?;
+        if !credential_snapshot_matches(&current, expected) {
+            return Ok(false);
+        }
+        self.write_unlocked(&merge_credentials(current, next)?)?;
+        Ok(true)
+    }
+}
+
+impl FileLoginStore {
+    fn write_unlocked(&self, settings: &Value) -> Result<(), String> {
         let parent = self.path.parent().unwrap_or_else(|| Path::new("."));
         std::fs::create_dir_all(parent)
             .map_err(|error| format!("创建 QQ 凭据目录失败: {error}"))?;
@@ -768,7 +834,10 @@ async fn save_credentials(
     store: &dyn LoginCredentialStore,
     creds: &LoginCredentials,
 ) -> Result<(), String> {
-    let mut settings = store.load()?;
+    store.save(&settings_with_credentials(store.load()?, creds))
+}
+
+fn settings_with_credentials(mut settings: Value, creds: &LoginCredentials) -> Value {
     settings["loginUin"] = json!(creds.uin);
     settings["authst"] = json!(creds.authst);
     settings["refreshToken"] = json!(creds.refresh_token);
@@ -777,7 +846,7 @@ async fn save_credentials(
     settings["openid"] = json!(creds.openid);
     // 保存完整的登录响应数据（若存在），以便后续按需解析 loginType 等字段
     settings["loginResponseData"] = creds.raw_data.clone().unwrap_or(json!({}));
-    store.save(&settings)
+    settings
 }
 
 /// 从应用设置中读取当前登录凭据的 uin 和 authst。
@@ -911,14 +980,16 @@ pub async fn check_credential_expired(store: &dyn LoginCredentialStore) -> Resul
 pub async fn refresh_credential(
     store: &dyn LoginCredentialStore,
 ) -> Result<LoginCredentials, String> {
+    let _guard = REFRESH_MUTEX.lock().await;
+    let expected = store.load()?;
     // 读取完整凭证，若不存在则直接返回错误（无需清除，因为本来就没有）
-    let creds = match read_full_credentials(store).await {
+    let creds = match credentials_from_settings(&expected) {
         Some(c) => c,
         None => return Err("未找到登录凭证".into()),
     };
     if creds.refresh_token.is_empty() && creds.refresh_key.is_empty() {
         // 缺少刷新令牌，无法刷新，清除当前凭证并返回错误
-        let _ = logout(store).await;
+        let _ = store.save_if_current(&expected, &json!({}));
         return Err("缺少刷新令牌，无法自动刷新".into());
     }
 
@@ -978,7 +1049,12 @@ pub async fn refresh_credential(
             .map_err(|e| format!("解析凭据失败: {e}"))?;
 
         // 保存新凭证
-        save_credentials(store, &new_creds).await?;
+        if !store.save_if_current(
+            &expected,
+            &settings_with_credentials(expected.clone(), &new_creds),
+        )? {
+            return Err("登录状态已更新，忽略旧的续期结果".into());
+        }
         log::info!("[登录] 凭证刷新成功，uin = {}", new_creds.uin);
         Ok(new_creds)
     }
@@ -988,7 +1064,7 @@ pub async fn refresh_credential(
         Ok(new_creds) => Ok(new_creds),
         Err(e) => {
             if is_credential_rejection(&e) {
-                let _ = logout(store).await;
+                let _ = store.save_if_current(&expected, &json!({}));
             }
             log::warn!("[登录] 凭证刷新失败: {}", e);
             Err(e)
@@ -999,6 +1075,10 @@ pub async fn refresh_credential(
 /// 从应用设置中读取完整的登录凭据（包含刷新令牌等字段）。
 async fn read_full_credentials(store: &dyn LoginCredentialStore) -> Option<LoginCredentials> {
     let settings = store.load().ok()?;
+    credentials_from_settings(&settings)
+}
+
+fn credentials_from_settings(settings: &Value) -> Option<LoginCredentials> {
     let uin = settings.get("loginUin")?.as_str()?.to_string();
     let authst = settings.get("authst")?.as_str()?.to_string();
     let refresh_token = settings
@@ -1411,6 +1491,34 @@ pub async fn get_login_status(store: &dyn LoginCredentialStore) -> Result<String
 mod tests {
     use super::{get_login_status, logout, FileLoginStore, LoginCredentialStore};
     use serde_json::json;
+
+    #[tokio::test]
+    async fn late_refresh_cannot_restore_logged_out_or_replaced_credentials() {
+        let path = std::env::temp_dir().join(format!(
+            "hotdownloader-refresh-cas-{}.json",
+            crate::platforms::get_guid()
+        ));
+        let first = FileLoginStore::new(&path);
+        let second = FileLoginStore::new(&path);
+        let original = json!({"loginUin":"1","authst":"old", "maxConcurrent":3});
+        first.save(&original).unwrap();
+        let refreshed = json!({"loginUin":"1","authst":"refreshed"});
+        second
+            .save(&json!({"loginUin":"1","authst":"old","maxConcurrent":9}))
+            .unwrap();
+        assert!(first.save_if_current(&original, &refreshed).unwrap());
+        assert_eq!(second.load().unwrap()["maxConcurrent"], 9);
+        let expected = first.load().unwrap();
+        logout(&second).await.unwrap();
+        assert!(!first.save_if_current(&expected, &refreshed).unwrap());
+        assert!(second.load().unwrap().get("authst").is_none());
+        second
+            .save(&json!({"loginUin":"2","authst":"new-user"}))
+            .unwrap();
+        assert!(!first.save_if_current(&expected, &refreshed).unwrap());
+        assert_eq!(second.load().unwrap()["loginUin"], "2");
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn only_explicit_auth_codes_prove_credentials_invalid() {

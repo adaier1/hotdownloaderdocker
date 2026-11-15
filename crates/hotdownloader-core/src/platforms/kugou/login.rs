@@ -69,6 +69,24 @@ struct Session {
 // 同时保护会话、设备初始化和凭据变更；网络请求期间释放锁。
 static SESSIONS: Lazy<Mutex<HashMap<String, Session>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
+/// 通过账号歌单接口验证当前令牌，只请求一条；不将保存文件的存在当作在线登录成功。
+pub async fn check_account(store: &Store) -> Result<(), String> {
+    let mut params = store.request_params()?;
+    let body = json!({"userid":number(&params["userid"]),"token":params["token"],"total_ver":979,"type":2,"page":1,"pagesize":1});
+    params["plat"] = json!(1);
+    let result = super::client::request(
+        "/v7/get_all_list",
+        "cloudlist.service.kugou.com",
+        params,
+        Some(body),
+    )
+    .await?;
+    if !result["data"]["info"].is_array() {
+        return Err("酷狗账号校验响应缺少列表".into());
+    }
+    Ok(())
+}
+
 fn device(state: &mut Value) -> Result<Value, String> {
     if state.get("device").is_none() {
         state["device"] = json!({"mid":crate::platforms::get_guid().to_lowercase(),"dfid":"-","dev":crate::platforms::get_guid().to_lowercase()});

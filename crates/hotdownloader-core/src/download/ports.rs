@@ -20,6 +20,7 @@ pub trait CompletionNotifier: Send + Sync {
 /// 下载 worker 的状态输出端口。状态变更应先更新权威任务记录，再广播给订阅者；
 /// 元数据警告仅供提示，不改变已完成的任务状态。事件名称和传输协议由运行时决定。
 pub trait DownloadProgressSink: Send + Sync {
+    fn paused(&self, _task_id: &str, _reason: &str) {}
     fn progress(&self, task_id: &str, downloaded: u64, total: u64, speed: u64);
     fn file_complete(&self, task_id: &str);
     fn completed(&self, task_id: &str, final_path: &str, saf_folder_uri: Option<String>);
@@ -56,8 +57,8 @@ pub trait DownloadFileOpener: Send + Sync {
     ) -> BoxFuture<'a, Option<OpenedDownloadFile>>;
 }
 
-/// 文件流完成后交给运行时处理歌词、封面和音频标签，返回可选的独立 LRC 路径。
-/// 元数据失败不会使音频下载失败，具体警告由 `DownloadProgressSink` 输出。
+/// 文件流完成后交给运行时处理歌词、封面和音频标签，返回已保存的附属文件路径。
+/// 资源获取或写入失败必须返回错误，worker 仅在收尾成功后发出完成事件。
 pub struct PostprocessRequest<'a> {
     pub context: &'a TaskContext,
     pub audio_path: &'a str,
@@ -72,7 +73,7 @@ pub trait DownloadPostprocessor: Send + Sync {
         &'a self,
         request: PostprocessRequest<'a>,
         progress_sink: &'a dyn DownloadProgressSink,
-    ) -> BoxFuture<'a, Option<String>>;
+    ) -> BoxFuture<'a, Result<Vec<String>, String>>;
 }
 
 /// 一次 worker 执行所需的运行时端口。运行时持有实现，worker 只借用它们。
@@ -93,8 +94,8 @@ impl DownloadPostprocessor for NoopDownloadPostprocessor {
         &'a self,
         _request: PostprocessRequest<'a>,
         _progress_sink: &'a dyn DownloadProgressSink,
-    ) -> BoxFuture<'a, Option<String>> {
-        Box::pin(async { None })
+    ) -> BoxFuture<'a, Result<Vec<String>, String>> {
+        Box::pin(async { Ok(Vec::new()) })
     }
 }
 

@@ -3,7 +3,9 @@
 
 pub mod adapters;
 pub mod download;
-pub mod platforms;
+/// 本地新增：曲库文件管理（MCP 的 list/delete/rename/write_metadata 依赖此模块）。
 pub mod library;
+pub mod platforms;
+pub mod playback;
 pub mod settings;
 pub mod task;

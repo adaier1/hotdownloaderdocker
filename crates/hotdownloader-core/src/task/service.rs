@@ -9,6 +9,7 @@ use crate::platforms::Platform;
 use crate::task::contract::{
     BatchResult, CreateTaskRequest, CreateTaskResult, DuplicateAction, TaskRecord, TaskStatus,
 };
+use crate::task::identity::RecordingIdentity;
 use crate::task::rules::TaskRules;
 use crate::task::state::TaskState;
 
@@ -19,6 +20,13 @@ pub trait TaskEnvironment: Send + Sync {
     fn download_config(&self) -> DownloadConfig;
     fn file_exists(&self, path: &str, is_saf: bool, saf_folder_uri: Option<&str>) -> bool;
     fn file_len(&self, path: &str, is_saf: bool) -> Option<u64>;
+    /// 运行时可查询独立于任务历史保存的下载记录；仅返回仍存在的完整文件。
+    fn existing_download(
+        &self,
+        _song: &crate::task::contract::SongInput,
+    ) -> Result<Option<String>, String> {
+        Ok(None)
+    }
 }
 
 /// 每个命令临时借用运行时管理的状态与引擎，不持有窗口或 IPC 句柄。
@@ -57,6 +65,39 @@ impl<'a> TaskService<'a> {
     }
 
     async fn register_engine_task(&self, task: &TaskRecord) -> Result<(), String> {
+        let mut task = task.clone();
+        // 旧版失败任务可能已保存超长目标；仅修复尚未创建的文件，不移动已有片段。
+        if let Some(saved) = task.save_path.as_deref() {
+            let config = self.environment.download_config();
+            let is_saf = config.download_dir == "saf://" && cfg!(target_os = "android");
+            if !self
+                .environment
+                .file_exists(saved, is_saf, config.saf_folder_uri.as_deref())
+            {
+                let path = std::path::Path::new(saved);
+                let safe = crate::download::path::bounded_path(
+                    path.parent().unwrap_or_else(|| std::path::Path::new(".")),
+                    path.file_stem()
+                        .and_then(|stem| stem.to_str())
+                        .ok_or("无效文件名")?,
+                    path.extension()
+                        .and_then(|extension| extension.to_str())
+                        .unwrap_or(""),
+                    "",
+                    is_saf,
+                )?;
+                if safe != saved {
+                    let safe =
+                        self.unique_path(&safe, &safe, is_saf, config.saf_folder_uri.as_deref())?;
+                    task = self.state.update(&task.id, true, |task| {
+                        task.path_warning = crate::download::path::truncation_warning(&safe);
+                        task.save_path = Some(safe);
+                        task.downloaded = 0;
+                        task.file_path = None;
+                    })?;
+                }
+            }
+        }
         // 持久化记录是下载器上下文的来源。重试旧任务时可用同一记录重建上下文，
         // 无需依赖前端页面保留 URL、路径或下载参数。
         let platform = task.platform.parse::<Platform>()?;
@@ -119,27 +160,8 @@ impl<'a> TaskService<'a> {
         {
             return Ok(suggested.to_string());
         }
-        let path = std::path::Path::new(original);
-        let stem = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .ok_or("无效文件名")?;
-        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
         for n in 1..10_000 {
-            let name = if ext.is_empty() {
-                format!("{stem} ({n})")
-            } else {
-                format!("{stem} ({n}).{ext}")
-            };
-            let candidate = if is_saf {
-                name
-            } else {
-                path.parent()
-                    .ok_or("无效下载目录")?
-                    .join(name)
-                    .to_string_lossy()
-                    .to_string()
-            };
+            let candidate = crate::download::path::numbered_path(original, n, is_saf)?;
             if !self.state.path_reserved(&candidate)
                 && !self
                     .environment
@@ -182,12 +204,7 @@ impl<'a> TaskService<'a> {
             .list()
             .into_iter()
             .filter(|task| {
-                task.platform == request.song.platform
-                    && if request.song.mid.is_empty() {
-                        task.song_mid.is_empty() && task.song_id == request.song.id
-                    } else {
-                        task.song_mid == request.song.mid
-                    }
+                RecordingIdentity::from(task).matches(RecordingIdentity::from(&request.song))
                     && (reuse_history
                         || !matches!(task.status, TaskStatus::Completed | TaskStatus::Error))
             })
@@ -204,6 +221,41 @@ impl<'a> TaskService<'a> {
             });
         }
         let rules = self.environment.task_rules();
+        let config = self.environment.download_config();
+        let action = request
+            .duplicate_action
+            .or(match rules.duplicate_strategy.as_str() {
+                "overwrite" => Some(DuplicateAction::Overwrite),
+                "rename" => Some(DuplicateAction::Rename),
+                "cancel" => Some(DuplicateAction::Cancel),
+                _ => None,
+            });
+        let completed = state.list().into_iter().any(|task| {
+            task.status == TaskStatus::Completed
+                && RecordingIdentity::from(&task).matches(RecordingIdentity::from(&request.song))
+                && task
+                    .file_path
+                    .as_deref()
+                    .or(task.save_path.as_deref())
+                    .is_some_and(|path| {
+                        self.environment.file_exists(
+                            path,
+                            config.download_dir == "saf://",
+                            config.saf_folder_uri.as_deref(),
+                        )
+                    })
+        });
+        if completed || self.environment.existing_download(&request.song)?.is_some() {
+            match action {
+                Some(DuplicateAction::Cancel) => return Ok(CreateTaskResult::Cancelled),
+                None => {
+                    return Ok(CreateTaskResult::NeedsConfirmation {
+                        song_title: request.song.title,
+                    })
+                }
+                _ => {}
+            }
+        }
         let selected = rules
             .initial_quality(&request.desired_quality, &request.song.qualities)
             .cloned();
@@ -247,6 +299,7 @@ impl<'a> TaskService<'a> {
             available_qualities: Some(request.song.qualities),
             speed: None,
             save_path: None,
+            path_warning: None,
         };
 
         if selected.is_some() {
@@ -289,6 +342,10 @@ impl<'a> TaskService<'a> {
             }
         }
 
+        task.path_warning = task
+            .save_path
+            .as_deref()
+            .and_then(crate::download::path::truncation_warning);
         // 先持久化，再交给下载器；窗口关闭或注册失败时仍能看到任务及错误。
         state.insert(task.clone())?;
         if task.status == TaskStatus::Waiting {
@@ -305,6 +362,11 @@ impl<'a> TaskService<'a> {
     pub async fn pause_task(&self, task_id: String) -> Result<(), String> {
         let state = self.state;
         let _creation_guard = state.creation_lock.lock().await;
+        self.pause_task_locked(task_id).await
+    }
+
+    async fn pause_task_locked(&self, task_id: String) -> Result<(), String> {
+        let state = self.state;
         let task = state.get(&task_id).ok_or("任务不存在")?;
         if task.status != TaskStatus::Downloading && task.status != TaskStatus::Waiting {
             return Err("只有等待或下载中的任务可以暂停".into());
@@ -315,20 +377,50 @@ impl<'a> TaskService<'a> {
             task.status = TaskStatus::Paused;
             task.speed = None;
         })?;
+        if self.engine.queue.status().paused {
+            self.engine.queue.remember_paused(&task_id);
+        }
         Ok(())
     }
 
     pub async fn resume_task(&self, task_id: String) -> Result<(), String> {
         let state = self.state;
         let _creation_guard = state.creation_lock.lock().await;
+        self.resume_task_locked(task_id).await
+    }
+
+    async fn resume_task_locked(&self, task_id: String) -> Result<(), String> {
+        let state = self.state;
+        if self.engine.queue.status().paused {
+            self.engine.queue.remember_paused(&task_id);
+            return Err("下载队列已暂停，请先恢复队列".into());
+        }
         let task = state.get(&task_id).ok_or("任务不存在")?;
         match task.status {
-            TaskStatus::Paused => {
+            TaskStatus::Paused
+                if !task.error_msg.as_deref().is_some_and(|error| {
+                    error.starts_with(crate::download::queue::QUEUE_PAUSED)
+                }) =>
+            {
                 // 同一进程中的暂停保留了下载器上下文，直接恢复运行即可。
-                self.engine.resume(&task_id).await;
-                state.update(&task_id, true, |task| task.status = TaskStatus::Downloading)?;
+                if let Some(started) = self.engine.resume(&task_id).await {
+                    state.update(&task_id, true, |task| {
+                        task.status = if started {
+                            TaskStatus::Downloading
+                        } else {
+                            TaskStatus::Waiting
+                        };
+                        task.error_msg = None;
+                    })?;
+                } else {
+                    let resumed = state.update(&task_id, true, |task| {
+                        task.status = TaskStatus::Waiting;
+                        task.error_msg = None;
+                    })?;
+                    self.register_engine_task(&resumed).await?;
+                }
             }
-            TaskStatus::Interrupted => {
+            TaskStatus::Interrupted | TaskStatus::Paused => {
                 // 进程重启后的下载器上下文已经消失；按磁盘文件长度恢复原品质任务。
                 // 此操作保留 retry_count，下载错误的重试与降级仍由 retry_task 处理。
                 self.engine.wait_for_task_exit(&task_id).await;
@@ -350,10 +442,21 @@ impl<'a> TaskService<'a> {
     }
 
     pub async fn cancel_task(&self, task_id: String, delete_file: bool) -> Result<(), String> {
-        let engine = self.engine;
         let state = self.state;
         let _creation_guard = state.creation_lock.lock().await;
-        let task = state.get(&task_id).ok_or("任务不存在")?;
+        self.cancel_task_locked(task_id, delete_file).await
+    }
+
+    async fn cancel_task_locked(&self, task_id: String, delete_file: bool) -> Result<(), String> {
+        let task = self.state.get(&task_id).ok_or("任务不存在")?;
+        self.cancel_engine_task(&task, delete_file).await?;
+        self.state.remove(&task_id)
+    }
+
+    async fn cancel_engine_task(&self, task: &TaskRecord, delete_file: bool) -> Result<(), String> {
+        let engine = self.engine;
+        let state = self.state;
+        let task_id = &task.id;
         // 已完成任务可能不在下载器活动表中，删除文件时仍须把最终路径交给引擎。
         if let Some(path) = task.file_path.as_deref().or_else(|| {
             task.save_path
@@ -368,7 +471,7 @@ impl<'a> TaskService<'a> {
             }
             return Err(e);
         }
-        state.remove(&task_id)
+        Ok(())
     }
 
     pub async fn remove_task(&self, task_id: String, delete_file: bool) -> Result<(), String> {
@@ -382,20 +485,34 @@ impl<'a> TaskService<'a> {
         task_ids: Vec<String>,
         delete_file: bool,
     ) -> Result<BatchResult, String> {
+        let _guard = self.state.creation_lock.lock().await;
+        self.remove_tasks_locked(task_ids, delete_file).await
+    }
+
+    async fn remove_tasks_locked(
+        &self,
+        task_ids: Vec<String>,
+        delete_file: bool,
+    ) -> Result<BatchResult, String> {
         let mut errors: Vec<String> = Vec::new();
         // 让前端获得后端真实成功/失败数量，用于清除完成后的准确通知。
-        let mut succeeded: usize = 0;
+        let mut removed = Vec::new();
         let mut failed: usize = 0;
         for task_id in task_ids {
-            if let Err(e) = self.cancel_task(task_id.clone(), delete_file).await {
+            let outcome = match self.state.get(&task_id) {
+                Some(task) => self.cancel_engine_task(&task, delete_file).await,
+                None => Err("任务不存在".into()),
+            };
+            if let Err(e) = outcome {
                 log::error!("批量移除任务失败 {}: {}", task_id, e);
                 // 批量移除失败时保留 task_id，便于前端/日志定位具体失败任务。
                 errors.push(format!("{}: {}", task_id, e));
                 failed += 1;
             } else {
-                succeeded += 1;
+                removed.push(task_id);
             }
         }
+        let succeeded = self.state.remove_many(&removed)?;
         Ok(BatchResult {
             succeeded,
             failed,
@@ -404,6 +521,14 @@ impl<'a> TaskService<'a> {
     }
 
     pub async fn retry_task(&self, task_id: String) -> Result<bool, String> {
+        self.retry_task_with_quality(task_id, None).await
+    }
+
+    pub async fn retry_task_with_quality(
+        &self,
+        task_id: String,
+        desired_quality: Option<String>,
+    ) -> Result<bool, String> {
         let state = self.state;
         let _creation_guard = state.creation_lock.lock().await;
         let mut task = state.get(&task_id).ok_or("任务不存在")?;
@@ -412,12 +537,7 @@ impl<'a> TaskService<'a> {
         }
         if state.list().iter().any(|other| {
             other.id != task.id
-                && other.platform == task.platform
-                && if task.song_mid.is_empty() {
-                    other.song_mid.is_empty() && other.song_id == task.song_id
-                } else {
-                    other.song_mid == task.song_mid
-                }
+                && RecordingIdentity::from(other).matches(RecordingIdentity::from(&task))
                 && !matches!(other.status, TaskStatus::Completed | TaskStatus::Error)
         }) {
             return Err("此歌曲已有未结束的下载任务".into());
@@ -427,7 +547,40 @@ impl<'a> TaskService<'a> {
         engine.wait_for_task_exit(&task_id).await;
         let rules = self.environment.task_rules();
         let next_count = task.retry_count + 1;
-        if next_count > 3 {
+        let postprocess_failed = task.error_msg.as_deref().is_some_and(|error| {
+            error.starts_with(crate::download::postprocess::POSTPROCESS_FAILED)
+        });
+        if let Some(desired) = desired_quality {
+            let available = task
+                .available_qualities
+                .as_deref()
+                .ok_or("任务缺少音质信息，请重新添加下载")?;
+            let selected = rules
+                .initial_quality(&desired, available)
+                .ok_or("所选音质及允许的降级音质不可用")?
+                .clone();
+            if selected.quality != task.quality {
+                task.quality = selected.quality;
+                task.filename = selected.filename;
+                task.file_size = selected.size;
+                task.downloaded = 0;
+                task.save_path = None;
+                let path = self.task_path_check(&task).await?;
+                task.save_path = Some(if path.exists || state.path_reserved(&path.original_path) {
+                    self.unique_path(
+                        &path.original_path,
+                        &path.suggested_path,
+                        path.is_saf,
+                        path.saf_folder_uri.as_deref(),
+                    )?
+                } else {
+                    path.original_path
+                });
+            } else {
+                task.downloaded = self.resume_offset(&task).await;
+            }
+            task.retry_count = 0;
+        } else if next_count > 3 && !postprocess_failed {
             // 次数耗尽后的行为完全由 Rust 决定；旧任务没有品质列表时不能凭空推断文件名。
             if !rules.auto_downgrade {
                 state.update(&task_id, true, |t| {
@@ -493,6 +646,10 @@ impl<'a> TaskService<'a> {
             task.downloaded = self.resume_offset(&task).await;
         }
 
+        task.path_warning = task
+            .save_path
+            .as_deref()
+            .and_then(crate::download::path::truncation_warning);
         // 先提交等待状态及本次重试参数，前端随后只接收状态快照。
         state.update(&task_id, true, |record| {
             record.quality = task.quality.clone();
@@ -501,6 +658,7 @@ impl<'a> TaskService<'a> {
             record.downloaded = task.downloaded;
             record.retry_count = task.retry_count;
             record.save_path = task.save_path.clone();
+            record.path_warning = task.path_warning.clone();
             record.error_msg = None;
             record.status = TaskStatus::Waiting;
         })?;
@@ -513,6 +671,138 @@ impl<'a> TaskService<'a> {
             return Err(e);
         }
         Ok(true)
+    }
+
+    pub async fn control_queue(&self, action: &str) -> Result<BatchResult, String> {
+        use crate::task::contract::BatchControlRequest;
+        match action {
+            "pause" => {
+                self.engine.queue.pause("已手动暂停下载队列".into());
+                self.control_tasks(BatchControlRequest {
+                    action: "pause".into(),
+                    task_ids: None,
+                    statuses: Some(vec![TaskStatus::Waiting, TaskStatus::Downloading]),
+                    delete_file: false,
+                })
+                .await
+            }
+            "resume" => {
+                let ids = self
+                    .engine
+                    .queue
+                    .resume()
+                    .into_iter()
+                    .filter(|id| {
+                        self.state.get(id).is_some_and(|task| {
+                            matches!(task.status, TaskStatus::Paused | TaskStatus::Interrupted)
+                        })
+                    })
+                    .collect();
+                self.control_tasks(BatchControlRequest {
+                    action: "resume".into(),
+                    task_ids: Some(ids),
+                    statuses: None,
+                    delete_file: false,
+                })
+                .await
+            }
+            _ => Err("未知队列操作".into()),
+        }
+    }
+
+    pub async fn control_tasks(
+        &self,
+        request: crate::task::contract::BatchControlRequest,
+    ) -> Result<BatchResult, String> {
+        if !matches!(request.action.as_str(), "pause" | "resume" | "remove") {
+            return Err("未知批量任务操作".into());
+        }
+        if request.task_ids.is_some() == request.statuses.is_some() {
+            return Err("请指定任务 ID 或任务状态其中一种选择范围".into());
+        }
+        let _guard = self.state.creation_lock.lock().await;
+        if request.action == "remove"
+            && request
+                .statuses
+                .as_ref()
+                .is_some_and(|states| states.contains(&TaskStatus::Waiting))
+        {
+            self.engine
+                .queue
+                .pause("取消等待任务后已暂停队列，可按需恢复".into());
+        }
+        let ids: Vec<String> = if let Some(ids) = request.task_ids {
+            ids.into_iter()
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect()
+        } else {
+            self.state
+                .list()
+                .into_iter()
+                .filter(|task| request.statuses.as_ref().unwrap().contains(&task.status))
+                .map(|task| task.id)
+                .collect()
+        };
+        let mut result = BatchResult {
+            succeeded: 0,
+            failed: 0,
+            errors: vec![],
+        };
+        if request.action == "remove" {
+            return self.remove_tasks_locked(ids, request.delete_file).await;
+        }
+        if request.action == "pause" {
+            let previous: Vec<_> = ids
+                .iter()
+                .filter_map(|id| self.state.get(id))
+                .filter(|task| matches!(task.status, TaskStatus::Waiting | TaskStatus::Downloading))
+                .collect();
+            for task in &previous {
+                self.engine.pause(&task.id).await;
+            }
+            let paused = match self.state.update_many(&ids, |task| {
+                if !matches!(task.status, TaskStatus::Waiting | TaskStatus::Downloading) {
+                    return false;
+                }
+                task.status = TaskStatus::Paused;
+                task.speed = None;
+                true
+            }) {
+                Ok(paused) => paused,
+                Err(error) => {
+                    for task in previous {
+                        self.engine.resume(&task.id).await;
+                    }
+                    return Err(error);
+                }
+            };
+            if self.engine.queue.status().paused {
+                for task in &paused {
+                    self.engine.queue.remember_paused(&task.id);
+                }
+            }
+            result.succeeded = paused.len();
+            return Ok(result);
+        }
+        for id in ids {
+            let outcome = match request.action.as_str() {
+                "pause" => self.pause_task_locked(id.clone()).await,
+                "resume" => self.resume_task_locked(id.clone()).await,
+                _ => {
+                    self.cancel_task_locked(id.clone(), request.delete_file)
+                        .await
+                }
+            };
+            match outcome {
+                Ok(()) => result.succeeded += 1,
+                Err(error) => {
+                    result.failed += 1;
+                    result.errors.push(format!("{id}: {error}"));
+                }
+            }
+        }
+        Ok(result)
     }
 
     pub fn set_max_concurrent(&self, max: u32) -> Result<(), String> {
@@ -537,7 +827,7 @@ impl<'a> TaskService<'a> {
             config.saf_folder_uri.as_deref(),
             &song_info,
             &task.filename,
-        );
+        )?;
 
         // 路径解析交给运行时。Android 传入相对文件名，普通文件系统传入完整路径。
         let exists = self
@@ -545,27 +835,9 @@ impl<'a> TaskService<'a> {
             .file_exists(&download_dir, is_saf, saf_folder_uri.as_deref());
         // 建议路径仅供冲突处理；排队任务的路径占用稍后由 unique_path 再次检查。
         if exists {
-            let path = std::path::Path::new(&download_dir);
-            let stem = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unnamed");
-            let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
             for counter in 1..10_000 {
-                let new_name = if ext.is_empty() {
-                    format!("{} ({})", stem, counter)
-                } else {
-                    format!("{} ({}).{}", stem, counter, ext)
-                };
-                let new_path = if is_saf {
-                    new_name.clone()
-                } else {
-                    path.parent()
-                        .unwrap_or_else(|| std::path::Path::new("."))
-                        .join(&new_name)
-                        .to_string_lossy()
-                        .to_string()
-                };
+                let new_path =
+                    crate::download::path::numbered_path(&download_dir, counter, is_saf)?;
                 let new_exists =
                     self.environment
                         .file_exists(&new_path, is_saf, saf_folder_uri.as_deref());
@@ -608,6 +880,7 @@ mod tests {
     use crate::download::ports::NoopCompletionNotifier;
     use crate::task::contract::{
         CreateTaskRequest, CreateTaskResult, DuplicateAction, QualityItem, SongInput, TaskRecord,
+        TaskStatus,
     };
     use crate::task::rules::TaskRules;
     use crate::task::state::{TaskEventSink, TaskRepository, TaskState};
@@ -690,6 +963,260 @@ mod tests {
             desired_quality: "320kmp3".into(),
             duplicate_action: action,
         }
+    }
+
+    #[tokio::test]
+    async fn long_name_conflicts_and_legacy_retry_share_the_bounded_path() {
+        let state = TaskState::load(
+            Arc::new(MemoryRepository(Mutex::new(vec![]))),
+            Arc::new(QuietEvents),
+        )
+        .unwrap();
+        let engine = DownloadEngine::new(
+            Arc::new(QuietRunner),
+            Arc::new(LocalFileDeleter),
+            Arc::new(NoopCompletionNotifier),
+        );
+        let environment = ExistingOriginalPath {
+            download_dir: std::env::temp_dir().to_string_lossy().into(),
+            file_length: None,
+        };
+        let service = TaskService::new(&state, &engine, &environment);
+        let mut first = request(Some(DuplicateAction::Rename));
+        first.song.title = "长歌名🎵".repeat(100);
+        let first_title = first.song.title.clone();
+        let CreateTaskResult::Created { task: first } =
+            service.create_download_task(first).await.unwrap()
+        else {
+            panic!()
+        };
+        let mut second = request(Some(DuplicateAction::Rename));
+        second.song.mid = "another-recording".into();
+        second.song.title = first_title.clone();
+        let CreateTaskResult::Created { task: second } =
+            service.create_download_task(second).await.unwrap()
+        else {
+            panic!()
+        };
+        assert_ne!(first.save_path, second.save_path);
+        assert!(first.path_warning.is_some() && second.path_warning.is_some());
+        for task in [&first, &second] {
+            let path = std::path::Path::new(task.save_path.as_ref().unwrap());
+            assert!(path.file_name().unwrap().to_str().unwrap().len() <= 255);
+            assert_eq!(task.song_title, first_title);
+        }
+        state
+            .update(&first.id, true, |task| {
+                task.status = TaskStatus::Error;
+                task.save_path = Some(
+                    std::path::Path::new(&environment.download_dir)
+                        .join(format!("{}.mp3", "旧超长路径".repeat(100)))
+                        .to_string_lossy()
+                        .into(),
+                );
+                task.path_warning = None;
+            })
+            .unwrap();
+        assert!(service.retry_task(first.id.clone()).await.unwrap());
+        let repaired = state.get(&first.id).unwrap();
+        assert!(repaired.path_warning.is_some());
+        assert!(
+            std::path::Path::new(repaired.save_path.as_ref().unwrap())
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .len()
+                <= 255
+        );
+    }
+
+    #[tokio::test]
+    async fn batch_controls_cover_all_pages_and_keep_manual_pauses() {
+        use crate::task::contract::BatchControlRequest;
+        let state = TaskState::load(
+            Arc::new(MemoryRepository(Mutex::new(vec![]))),
+            Arc::new(QuietEvents),
+        )
+        .unwrap();
+        let engine = DownloadEngine::new(
+            Arc::new(QuietRunner),
+            Arc::new(LocalFileDeleter),
+            Arc::new(NoopCompletionNotifier),
+        );
+        let environment = ExistingOriginalPath {
+            download_dir: std::env::temp_dir().to_string_lossy().into(),
+            file_length: None,
+        };
+        let service = TaskService::new(&state, &engine, &environment);
+        for index in 0..125 {
+            let mut input = request(Some(DuplicateAction::Rename));
+            input.song.mid = format!("batch-{index}");
+            input.song.title = format!("song-{index}");
+            service.create_download_task(input).await.unwrap();
+        }
+        let result = service
+            .control_tasks(BatchControlRequest {
+                action: "pause".into(),
+                task_ids: None,
+                statuses: Some(vec![TaskStatus::Waiting]),
+                delete_file: false,
+            })
+            .await
+            .unwrap();
+        assert_eq!(result.succeeded, 125);
+        assert!(state
+            .list()
+            .iter()
+            .all(|task| task.status == TaskStatus::Paused));
+        service.control_queue("pause").await.unwrap();
+        assert_eq!(
+            service.control_queue("resume").await.unwrap().succeeded,
+            0,
+            "保留此前逐项暂停的决定"
+        );
+        let result = service
+            .control_tasks(BatchControlRequest {
+                action: "resume".into(),
+                task_ids: None,
+                statuses: Some(vec![TaskStatus::Paused]),
+                delete_file: false,
+            })
+            .await
+            .unwrap();
+        assert_eq!(result.succeeded, 125);
+        let result = service
+            .control_tasks(BatchControlRequest {
+                action: "remove".into(),
+                task_ids: None,
+                statuses: Some(vec![TaskStatus::Waiting]),
+                delete_file: false,
+            })
+            .await
+            .unwrap();
+        assert_eq!(result.succeeded, 125);
+        assert!(state.list().is_empty());
+        assert!(engine.queue.status().paused);
+    }
+
+    #[tokio::test]
+    async fn retry_can_reselect_quality_and_reset_budget_without_creating_another_task() {
+        let state = TaskState::load(
+            Arc::new(MemoryRepository(Mutex::new(vec![]))),
+            Arc::new(QuietEvents),
+        )
+        .unwrap();
+        let engine = DownloadEngine::new(
+            Arc::new(QuietRunner),
+            Arc::new(LocalFileDeleter),
+            Arc::new(NoopCompletionNotifier),
+        );
+        let environment = ExistingOriginalPath {
+            download_dir: std::env::temp_dir().to_string_lossy().into(),
+            file_length: None,
+        };
+        let service = TaskService::new(&state, &engine, &environment);
+        let CreateTaskResult::Created { task } = service
+            .create_download_task(request(Some(DuplicateAction::Rename)))
+            .await
+            .unwrap()
+        else {
+            panic!()
+        };
+        state
+            .update(&task.id, true, |task| {
+                task.quality = "48kaac".into();
+                task.filename = "lowest.aac".into();
+                task.status = TaskStatus::Error;
+                task.retry_count = 9;
+                task.available_qualities
+                    .as_mut()
+                    .unwrap()
+                    .push(QualityItem {
+                        quality: "flac".into(),
+                        filename: "lossless.flac".into(),
+                        size: 800,
+                    });
+            })
+            .unwrap();
+        assert!(service
+            .retry_task_with_quality(task.id.clone(), Some("not-a-quality".into()))
+            .await
+            .is_err());
+        assert!(service
+            .retry_task_with_quality(task.id.clone(), Some("flac".into()))
+            .await
+            .unwrap());
+        let retried = state.get(&task.id).unwrap();
+        assert_eq!(retried.quality, "flac");
+        assert_eq!(retried.filename, "lossless.flac");
+        assert_eq!(retried.file_size, 800);
+        assert_eq!(retried.retry_count, 0);
+        assert_eq!(retried.downloaded, 0);
+        assert!(retried.save_path.unwrap().ends_with(".flac"));
+        assert_eq!(state.list().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn recording_identity_deduplicates_aliases_and_completed_downloads() {
+        let repository = Arc::new(MemoryRepository(Mutex::new(Vec::new())));
+        let state = TaskState::load(repository, Arc::new(QuietEvents)).unwrap();
+        let engine = DownloadEngine::new(
+            Arc::new(QuietRunner),
+            Arc::new(LocalFileDeleter),
+            Arc::new(NoopCompletionNotifier),
+        );
+        let environment = ExistingOriginalPath {
+            download_dir: std::env::temp_dir().to_string_lossy().into(),
+            file_length: None,
+        };
+        let service = TaskService::new(&state, &engine, &environment);
+        let mut original = request(Some(DuplicateAction::Rename));
+        original.song.media_mid = "same-recording".into();
+        let CreateTaskResult::Created { task } =
+            service.create_download_task(original).await.unwrap()
+        else {
+            panic!()
+        };
+        let mut alias = request(Some(DuplicateAction::Cancel));
+        alias.song.mid = "another-album-mid".into();
+        alias.song.media_mid = "same-recording".into();
+        alias.song.title = "歌曲（专辑注释）".into();
+        alias.song.album = "精选集".into();
+        assert!(matches!(
+            service.create_download_task(alias).await.unwrap(),
+            CreateTaskResult::Existing { .. }
+        ));
+        state
+            .update(&task.id, true, |task| {
+                task.status = TaskStatus::Completed;
+                task.file_path = Some(format!("{}/歌曲 - 歌手.mp3", environment.download_dir));
+            })
+            .unwrap();
+        let mut same = request(Some(DuplicateAction::Cancel));
+        same.song.title = "标题已变更".into();
+        assert!(matches!(
+            service.create_download_task(same).await.unwrap(),
+            CreateTaskResult::Cancelled
+        ));
+        let mut different = request(Some(DuplicateAction::Rename));
+        different.song.mid = "live-recording".into();
+        different.song.media_mid = "different-media".into();
+        assert!(matches!(
+            service.create_download_task(different).await.unwrap(),
+            CreateTaskResult::Created { .. }
+        ));
+        state
+            .update(&task.id, true, |task| {
+                task.file_path = Some("removed.mp3".into())
+            })
+            .unwrap();
+        let mut missing = request(Some(DuplicateAction::Cancel));
+        missing.song.title = "本地文件已删除".into();
+        assert!(matches!(
+            service.create_download_task(missing).await.unwrap(),
+            CreateTaskResult::Created { .. }
+        ));
     }
 
     #[tokio::test]

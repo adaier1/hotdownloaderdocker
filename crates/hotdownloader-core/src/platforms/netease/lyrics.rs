@@ -76,6 +76,12 @@ fn yrc_to_elrc(raw: &str) -> String {
 mod tests {
     use super::*;
     #[test]
+    fn english_and_translation_preserve_absolute_yrc_word_times() {
+        let raw = "[0,1000](0,500,0)First (500,500,0)line\n[0,1000](0,1000,0)第一行\n[1000,1000](1000,500,0)Second (1500,500,0)line\n[1000,1000](1000,1000,0)第二行";
+        assert_eq!(yrc_to_elrc(raw), "[00:00.000]<00:00.000>First <00:00.500>line\n[00:00.000]<00:00.000>第一行\n[00:01.000]<00:01.000>Second <00:01.500>line\n[00:01.000]<00:01.000>第二行");
+    }
+
+    #[test]
     fn lyric_converts_word_times_to_enhanced_lrc() {
         let lyric = parse_lyric(&json!({
             "lrc": {"lyric": "[00:01.000]你好"},

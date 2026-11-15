@@ -58,8 +58,8 @@ pub struct TaskController {
     pub delete_file_on_cancel: Arc<AtomicBool>,
     /// 下载线程确定的最终文件路径（供外部删除使用）
     pub final_path: Arc<Mutex<Option<String>>>,
-    /// 下载线程确定的最终 LRC 文件路径（供外部删除使用）
-    pub lrc_final_path: Arc<Mutex<Option<String>>>,
+    /// 下载线程保存的歌词与封面文件路径（供外部删除使用）
+    pub sidecar_final_paths: Arc<Mutex<Vec<String>>>,
     /// 任务是否已由调度器启动
     pub started: Arc<AtomicBool>,
     /// 任务完成或退出的通知（用于 remove 等待）
@@ -87,6 +87,7 @@ impl TaskController {
 
 #[derive(Clone)]
 pub struct DownloadEngine {
+    pub queue: Arc<super::queue::QueueControl>,
     runner: Arc<dyn DownloadTaskRunner>,
     file_deleter: Arc<dyn FileDeleter>,
     notifier: Arc<dyn CompletionNotifier>,
@@ -98,8 +99,8 @@ pub struct DownloadEngine {
     task_contexts: Arc<Mutex<HashMap<String, TaskContext>>>,
     /// 存储任务最终文件路径（普通路径或 SAF URI），用于删除文件
     final_paths: Arc<Mutex<HashMap<String, String>>>,
-    /// 存储任务对应的 LRC 歌词文件路径/URI，用于删除时一并清理
-    lrc_paths: Arc<Mutex<HashMap<String, String>>>,
+    /// 存储任务对应的歌词与封面文件路径/URI，用于删除时一并清理
+    sidecar_paths: Arc<Mutex<HashMap<String, Vec<String>>>>,
     /// 保护任务启动与移除的互斥锁，避免竞态
     start_lock: Arc<Mutex<()>>,
 }
@@ -113,10 +114,10 @@ impl DownloadEngine {
             .insert(task_id.to_string(), path.to_string());
     }
 
-    /// 品质降级后清除旧文件和歌词路径，避免沿用上一次尝试的目标。
+    /// 品质降级后清除旧文件和附属文件路径，避免沿用上一次尝试的目标。
     pub async fn forget_final_path(&self, task_id: &str) {
         self.final_paths.lock().await.remove(task_id);
-        self.lrc_paths.lock().await.remove(task_id);
+        self.sidecar_paths.lock().await.remove(task_id);
     }
 
     /// 等待上一轮 worker 完全退出，再以相同任务 ID 开始重试。
@@ -135,6 +136,7 @@ impl DownloadEngine {
         notifier: Arc<dyn CompletionNotifier>,
     ) -> Self {
         DownloadEngine {
+            queue: Arc::new(super::queue::QueueControl::default()),
             runner,
             file_deleter,
             notifier,
@@ -145,9 +147,14 @@ impl DownloadEngine {
             scheduler_notify: Arc::new(Notify::new()),
             task_contexts: Arc::new(Mutex::new(HashMap::new())),
             final_paths: Arc::new(Mutex::new(HashMap::new())),
-            lrc_paths: Arc::new(Mutex::new(HashMap::new())),
+            sidecar_paths: Arc::new(Mutex::new(HashMap::new())),
             start_lock: Arc::new(Mutex::new(())),
         }
+    }
+
+    pub fn with_queue_control(mut self, queue: Arc<super::queue::QueueControl>) -> Self {
+        self.queue = queue;
+        self
     }
 
     /// 注册已组装的任务上下文，并继承重试时可能保存的最终路径。
@@ -160,7 +167,7 @@ impl DownloadEngine {
             url_ready: Arc::new(Notify::new()),
             delete_file_on_cancel: Arc::new(AtomicBool::new(false)),
             final_path: ctx.final_path.clone(),
-            lrc_final_path: Arc::new(Mutex::new(None)),
+            sidecar_final_paths: Arc::new(Mutex::new(Vec::new())),
             started: Arc::new(AtomicBool::new(false)),
             done: Arc::new(Notify::new()),
         };
@@ -178,7 +185,10 @@ impl DownloadEngine {
             .lock()
             .await
             .insert(task_id, controller);
-        self.ready_tasks.lock().await.push_back(ctx);
+        let mut ready = self.ready_tasks.lock().await;
+        ready.retain(|queued| queued.task_id != ctx.task_id);
+        ready.push_back(ctx);
+        drop(ready);
         self.scheduler_notify.notify_one();
     }
 
@@ -210,7 +220,7 @@ impl DownloadEngine {
             url_ready: Arc::new(Notify::new()),
             delete_file_on_cancel: Arc::new(AtomicBool::new(false)),
             final_path: ctx.final_path.clone(), // 共享同一个 final_path
-            lrc_final_path: Arc::new(Mutex::new(None)),
+            sidecar_final_paths: Arc::new(Mutex::new(Vec::new())),
             started: Arc::new(AtomicBool::new(false)),
             done: Arc::new(Notify::new()),
         };
@@ -244,11 +254,14 @@ impl DownloadEngine {
     }
 
     /// 异步恢复任务
-    pub async fn resume(&self, task_id: &str) {
+    pub async fn resume(&self, task_id: &str) -> Option<bool> {
         if let Some(ctrl) = self.active_controllers.lock().await.get(task_id) {
             ctrl.pause_flag.store(false, Ordering::SeqCst);
             ctrl.resume_notify.notify_one();
+            self.scheduler_notify.notify_one();
+            return Some(ctrl.started.load(Ordering::SeqCst));
         }
+        None
     }
 
     /// 设置并发数（同步，无需 Tokio 上下文）
@@ -261,10 +274,15 @@ impl DownloadEngine {
     pub async fn run_scheduler(&self) {
         loop {
             // 启动尽可能多的就绪任务
-            while let Some(ctx) = {
-                let mut ready = self.ready_tasks.lock().await;
-                ready.pop_front()
-            } {
+            let count = self.ready_tasks.lock().await.len();
+            for _ in 0..count {
+                let Some(ctx) = self.ready_tasks.lock().await.pop_front() else {
+                    break;
+                };
+                if self.queue.status().paused {
+                    self.ready_tasks.lock().await.push_front(ctx);
+                    break;
+                }
                 let current = self.active_downloads.load(Ordering::SeqCst);
                 let max = self.max_concurrent.load(Ordering::SeqCst);
                 if current >= max {
@@ -296,6 +314,8 @@ impl DownloadEngine {
                                 // 直接忽略，避免同一任务被并发下载两次（会互相覆盖文件）
                                 log::warn!("任务 {} 已在运行，忽略重复的就绪条目", ctx.task_id);
                                 None
+                            } else if ctrl.pause_flag.load(Ordering::SeqCst) {
+                                Some(ctrl)
                             } else {
                                 // 设置 started 并标记可以启动
                                 ctrl.started.store(true, Ordering::SeqCst);
@@ -321,6 +341,7 @@ impl DownloadEngine {
 
                 if let Some(ctrl) = ctrl {
                     if !should_start {
+                        self.ready_tasks.lock().await.push_back(ctx);
                         continue;
                     }
 
@@ -372,10 +393,14 @@ impl DownloadEngine {
                         if let Some(p) = final_path {
                             engine.final_paths.lock().await.insert(task_id.clone(), p);
                         }
-                        // 保存 LRC 歌词文件路径（若存在）
-                        let lrc_path = ctrl_clone.lrc_final_path.lock().await.clone();
-                        if let Some(lp) = lrc_path {
-                            engine.lrc_paths.lock().await.insert(task_id.clone(), lp);
+                        // 保存本次下载生成的歌词与封面文件路径。
+                        let paths = ctrl_clone.sidecar_final_paths.lock().await.clone();
+                        if !paths.is_empty() {
+                            engine
+                                .sidecar_paths
+                                .lock()
+                                .await
+                                .insert(task_id.clone(), paths);
                         }
 
                         // 下载结束（完成/错误），仅移除控制器，保留任务上下文供删除文件使用
@@ -395,7 +420,10 @@ impl DownloadEngine {
                 // 如果 ctrl 不存在，跳过该任务（可能已被取消）
             }
 
-            self.scheduler_notify.notified().await;
+            tokio::select! {
+                _ = self.scheduler_notify.notified() => {},
+                _ = self.queue.changed.notified() => {},
+            }
         }
     }
 
@@ -458,7 +486,7 @@ impl DownloadEngine {
             }
         };
 
-        // 用 delete_error 暂存主文件删除错误，继续执行 LRC 删除和 final_paths/task_contexts 清理，最后统一返回错误。
+        // 主文件删除失败时仍清理附属文件及路径映射，最后统一返回错误。
         let mut delete_error: Option<String> = None;
 
         // 6. 删除文件（如果要求）
@@ -466,7 +494,7 @@ impl DownloadEngine {
             if let Some(path) = &final_path {
                 if let Err(e) = self.file_deleter.remove(path).await {
                     log::error!("删除文件失败 {}: {}", path, e);
-                    // 删除主文件失败时不再提前返回，确保 LRC 文件删除与路径映射清理仍会执行。
+                    // 保证附属文件删除与路径映射清理仍会执行。
                     delete_error = Some(e);
                 } else {
                     log::info!("已删除文件: {}", path);
@@ -474,19 +502,21 @@ impl DownloadEngine {
             }
         }
 
-        // 删除对应的 LRC 歌词文件（如果存在且要求删除文件）
+        // 无论是否删除文件都清理路径映射；附属文件删除失败只记录日志。
+        let sidecar_paths = self
+            .sidecar_paths
+            .lock()
+            .await
+            .remove(task_id)
+            .unwrap_or_default();
         if delete_file {
-            if let Some(lrc) = self.lrc_paths.lock().await.remove(task_id) {
-                if let Err(e) = self.file_deleter.remove(&lrc).await {
-                    // LRC 删除失败不阻塞主流程，仅记录日志
-                    log::warn!("删除 LRC 文件失败 {}: {}", lrc, e);
+            for path in sidecar_paths {
+                if let Err(e) = self.file_deleter.remove(&path).await {
+                    log::warn!("删除附属文件失败 {path}: {e}");
                 } else {
-                    log::info!("已删除 LRC 文件: {}", lrc);
+                    log::info!("已删除附属文件: {path}");
                 }
             }
-        } else {
-            // 不删除文件时，也需要清理 LRC 路径映射，避免残留
-            self.lrc_paths.lock().await.remove(task_id);
         }
 
         // 7. 清除 final_paths 和 task_contexts
@@ -544,6 +574,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn remove_tracks_both_lyrics_and_cover_and_respects_keep_files() {
+        for delete_file in [false, true] {
+            let engine = DownloadEngine::new(
+                Arc::new(StubRunner(Arc::new(AtomicUsize::new(0)))),
+                Arc::new(LocalFileDeleter),
+                Arc::new(crate::download::ports::NoopCompletionNotifier),
+            );
+            let directory = std::env::temp_dir().join(format!(
+                "hotdownloader-sidecars-{:x}",
+                rand::random::<u64>()
+            ));
+            std::fs::create_dir_all(&directory).unwrap();
+            let paths = ["song.flac", "song.lrc", "song.png"].map(|name| directory.join(name));
+            for path in &paths {
+                std::fs::write(path, b"sentinel").unwrap();
+            }
+            engine
+                .final_paths
+                .lock()
+                .await
+                .insert("task".into(), paths[0].to_string_lossy().into());
+            engine.sidecar_paths.lock().await.insert(
+                "task".into(),
+                paths[1..]
+                    .iter()
+                    .map(|path| path.to_string_lossy().into())
+                    .collect(),
+            );
+            engine.remove("task", delete_file).await.unwrap();
+            assert!(engine.final_paths.lock().await.is_empty());
+            assert!(engine.sidecar_paths.lock().await.is_empty());
+            for path in paths {
+                assert_eq!(path.exists(), !delete_file);
+                if !delete_file {
+                    assert_eq!(std::fs::read(&path).unwrap(), b"sentinel");
+                    std::fs::remove_file(path).unwrap();
+                }
+            }
+            std::fs::remove_dir(directory).unwrap();
+        }
+    }
+
+    #[tokio::test]
     async fn paused_controller_exits_when_canceled() {
         let controller = TaskController {
             cancel_token: CancellationToken::new(),
@@ -552,7 +625,7 @@ mod tests {
             url_ready: Arc::new(Notify::new()),
             delete_file_on_cancel: Arc::new(AtomicBool::new(false)),
             final_path: Arc::new(Mutex::new(None)),
-            lrc_final_path: Arc::new(Mutex::new(None)),
+            sidecar_final_paths: Arc::new(Mutex::new(Vec::new())),
             started: Arc::new(AtomicBool::new(true)),
             done: Arc::new(Notify::new()),
         };
@@ -562,7 +635,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn scheduler_runs_a_task_without_tauri() {
+    async fn queue_pause_and_individual_pause_do_not_consume_waiting_slots() {
         let runs = Arc::new(AtomicUsize::new(0));
         let hits = Arc::new(AtomicUsize::new(0));
         let done = Arc::new(Notify::new());
@@ -574,7 +647,8 @@ mod tests {
                 done: done.clone(),
             }),
         );
-
+        engine.set_concurrency(1);
+        engine.queue.pause("test pause".into());
         let scheduler = tokio::spawn({
             let engine = engine.clone();
             async move { engine.run_scheduler().await }
@@ -602,12 +676,41 @@ mod tests {
                 final_path: Arc::new(Mutex::new(None)),
             })
             .await;
-
+        engine.pause("task-1").await;
+        let mut second = engine
+            .task_contexts
+            .lock()
+            .await
+            .get("task-1")
+            .unwrap()
+            .clone();
+        second.task_id = "task-2".into();
+        engine.add_task(second).await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert_eq!(
+            runs.load(Ordering::SeqCst),
+            0,
+            "全局暂停期间新增任务也不能启动"
+        );
+        engine.queue.resume();
         tokio::time::timeout(Duration::from_secs(2), done.notified())
             .await
             .expect("调度器未完成任务");
         assert_eq!(runs.load(Ordering::SeqCst), 1);
-        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        assert!(!engine
+            .active_controllers
+            .lock()
+            .await
+            .get("task-1")
+            .unwrap()
+            .started
+            .load(Ordering::SeqCst));
+        engine.resume("task-1").await;
+        tokio::time::timeout(Duration::from_secs(2), done.notified())
+            .await
+            .expect("恢复等待任务后应唤醒调度器");
+        assert_eq!(runs.load(Ordering::SeqCst), 2);
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
         scheduler.abort();
     }
 }

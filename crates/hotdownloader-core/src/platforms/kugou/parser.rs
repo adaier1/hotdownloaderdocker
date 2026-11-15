@@ -21,6 +21,7 @@ pub(super) fn cover(v: &Value) -> String {
             "/Avatar",
             "/avatar",
             "/pic",
+            "/pic_url",
             "/album_info/cover",
             "/trans_param/union_cover",
             "/cover",
@@ -236,7 +237,7 @@ pub(super) fn artist(v: &Value) -> Value {
 pub(super) fn playlist(v: &Value) -> Value {
     json!({
         "id": string(v,&["/gid","/global_collection_id"]),
-        "name": string(v,&["/specialname","/name"]),
+        "name": string(v,&["/specialname","/name","/listname"]),
         "creator": string(v,&["/nickname","/list_create_username"]),
         "coverUrl": cover(v),
         "songCount": number(field(v,&["/song_count","/count"])),
