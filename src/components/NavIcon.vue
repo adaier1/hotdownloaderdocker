@@ -24,6 +24,10 @@
     <template v-else-if="name === 'library'">
       <path d="M4 6a2 2 0 0 1 2-2h4.2a2 2 0 0 1 1.4.6L13 6h5a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6z" />
     </template>
+    <template v-else-if="name === 'account'">
+      <circle cx="12" cy="8" r="3.5" />
+      <path d="M4.8 20.2a7.2 7.2 0 0 1 14.4 0" />
+    </template>
     <template v-else-if="name === 'settings'">
       <circle cx="12" cy="12" r="3" />
       <path
@@ -33,5 +37,5 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{ name: 'dashboard' | 'search' | 'playlist' | 'task' | 'library' | 'settings' }>()
+defineProps<{ name: 'dashboard' | 'search' | 'playlist' | 'task' | 'library' | 'account' | 'settings' }>()
 </script>

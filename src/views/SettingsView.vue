@@ -11,31 +11,7 @@
                 <n-button size="small" type="primary" @click="settingsStore.resolveConflict(field, true)">保留本页修改</n-button>
             </div>
         </n-alert>
-        <!-- 移动端：分组纵向布局；桌面端：原有左右分栏表单。
-             共用组件实例，缩放窗口时保留登录输入和弹窗中的编辑草稿。 -->
-        <!-- 账号设置：独立分类，位于基本设置上方，增加底部间距避免与下方黏连 -->
-        <div class="set-card account-section">
-            <div class="set-card-title">账号设置</div>
-            <n-form :label-placement="isNarrow ? 'top' : 'left'">
-                <LoginSetting />
-            </n-form>
-        </div>
-
-        <!-- 酷狗账号登录：独立卡片，沿用账号设置的卡片样式 -->
-        <div class="set-card account-section">
-            <div class="set-card-title">酷狗账号</div>
-            <n-form :label-placement="isNarrow ? 'top' : 'left'">
-                <KugouLoginSetting />
-            </n-form>
-        </div>
-
-        <!-- 网易云账号登录：独立卡片，沿用账号设置的卡片样式 -->
-        <div class="set-card account-section">
-            <div class="set-card-title">网易云账号</div>
-            <n-form :label-placement="isNarrow ? 'top' : 'left'">
-                <NeteaseLoginSetting />
-            </n-form>
-        </div>
+        <!-- 平台账号登录已移至左侧「账号设置」页面统一管理。 -->
 
         <!-- 安全设置：仅 Web 版支持修改访问密码（桌面端不经过 HTTP 认证） -->
         <div v-if="!native" class="set-card">
@@ -111,9 +87,6 @@ import JumpToTaskSetting from '../components/settings/JumpToTaskSetting.vue'
 import ClearHistoryButton from '../components/settings/ClearHistoryButton.vue'
 import WriteMetadataSetting from '../components/settings/WriteMetadataSetting.vue'
 import DownloadLrcSetting from '../components/settings/DownloadLrcSetting.vue'
-import LoginSetting from '../components/settings/LoginSetting.vue'
-import KugouLoginSetting from '../components/settings/KugouLoginSetting.vue'
-import NeteaseLoginSetting from '../components/settings/NeteaseLoginSetting.vue'
 import SecuritySetting from '../components/settings/SecuritySetting.vue'
 import McpSetting from '../components/settings/McpSetting.vue'
 import FeishuNotifySetting from '../components/settings/FeishuNotifySetting.vue'
@@ -183,10 +156,6 @@ function goAbout() {
 /* 移动端移除最大宽度限制，撑满父容器 */
 .settings-view.is-narrow {
     max-width: none;
-}
-
-.account-section {
-    margin-bottom: 16px;
 }
 
 /* 将 Naive 表单行渲染为 MusicDock 的 set-row 版式 */

@@ -35,7 +35,7 @@
                 <button v-for="item in navItems" :key="item.key" class="bottom-nav-item"
                     :class="{ active: currentRoute === item.key }" type="button" @click="handleMenuClick(item.key)">
                     <NavIcon :name="item.icon" class="bottom-nav-icon" />
-                    <span>{{ item.label }}</span>
+                    <span>{{ item.shortLabel || item.label }}</span>
                 </button>
             </div>
         </footer>
@@ -127,13 +127,22 @@ const currentRoute = computed(() => {
     return route.path.startsWith('/settings/') ? '/settings' : route.path
 })
 
-const navItems = [
-    { key: '/dashboard', label: '仪表盘', icon: 'dashboard' as const },
-    { key: '/search', label: '搜索', icon: 'search' as const },
-    { key: '/playlist', label: '歌单', icon: 'playlist' as const },
-    { key: '/task', label: '下载任务', icon: 'task' as const },
-    { key: '/library', label: '曲库', icon: 'library' as const },
-    { key: '/settings', label: '设置', icon: 'settings' as const },
+type NavItem = {
+    key: string
+    label: string
+    /** 窄屏底部导航使用的短标签，缺省时沿用 label */
+    shortLabel?: string
+    icon: 'dashboard' | 'search' | 'playlist' | 'task' | 'library' | 'account' | 'settings'
+}
+
+const navItems: NavItem[] = [
+    { key: '/dashboard', label: '仪表盘', icon: 'dashboard' },
+    { key: '/search', label: '搜索', icon: 'search' },
+    { key: '/playlist', label: '歌单', icon: 'playlist' },
+    { key: '/task', label: '下载任务', icon: 'task' },
+    { key: '/library', label: '曲库', icon: 'library' },
+    { key: '/account', label: '账号设置', shortLabel: '账号', icon: 'account' },
+    { key: '/settings', label: '设置', icon: 'settings' },
 ]
 
 function handleMenuClick(key: string) {
@@ -336,6 +345,11 @@ function handleMenuClick(key: string) {
 
 .bottom-nav-item.active {
     color: var(--accent);
+}
+
+/* 导航项增加到 7 个后，长中文标签在窄屏不换行，避免撑破底部导航 */
+.bottom-nav-item span {
+    white-space: nowrap;
 }
 
 .bottom-nav-icon {

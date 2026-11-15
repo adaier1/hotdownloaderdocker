@@ -46,6 +46,12 @@ const routes: RouteRecordRaw[] = [
         meta: { keepAlive: true },
     },
     {
+        path: '/account',
+        name: 'account',
+        component: () => import('../views/AccountView.vue'),
+        meta: { keepAlive: true },
+    },
+    {
         path: '/settings',
         name: 'settings',
         component: () => import('../views/SettingsView.vue'),
