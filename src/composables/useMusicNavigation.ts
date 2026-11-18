@@ -7,7 +7,7 @@ const backLabels: Record<string, string> = {
     '/search': '返回搜索',
     '/artist': '返回歌手',
     '/album': '返回专辑',
-    '/playlist': '返回歌单',
+    '/playlist': '返回解析',
 }
 
 /**

@@ -93,7 +93,7 @@ pub async fn get_download_link_with_credentials(
     )
     .await
     .and_then(|value| parse_link(&value));
-    match primary {
+    let outcome = match primary {
         Ok(link) => Ok(link),
         // 移动端接口固定返回 128k MP3，只能用于对应候选。
         // 高音质失败由共用降级流程切换品质、文件后缀和大小后再尝试。
@@ -103,6 +103,16 @@ pub async fn get_download_link_with_credentials(
                 format!("{primary_error}；酷狗 128k MP3 兜底失败：{fallback_error}")
             }),
         Err(error) => Err(error),
+    };
+    outcome.map_err(|error| member_hint(&error))
+}
+
+/// 酷狗对会员歌曲统一返回「需要付费」，直接透出会让用户以为是程序问题。
+fn member_hint(error: &str) -> String {
+    if error.contains("需要付费") {
+        "该歌曲需要酷狗会员（VIP），当前账号没有该音源的下载权限".to_string()
+    } else {
+        error.to_string()
     }
 }
 

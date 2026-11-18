@@ -36,6 +36,7 @@ pub async fn search_songs(
         Platform::Kugou => {
             platforms::kugou::search::search_songs(&separator, keyword, page, limit).await
         }
+        Platform::Bilibili => Err("B 站仅支持分享链接解析，不支持歌曲搜索".into()),
     }
 }
 
@@ -57,6 +58,7 @@ pub async fn fetch_cover(app: AppHandle, platform: String, song_id: u64) -> Resu
         Platform::QqMusic => Err("QQ 音乐封面已包含在搜索结果中，无需单独获取".into()),
         Platform::Kuwo => platforms::kuwo::cover::fetch_cover(song_id).await,
         Platform::Kugou => Err("酷狗封面已包含在搜索结果中，无需单独获取".into()),
+        Platform::Bilibili => Err("B 站封面已包含在解析结果中，无需单独获取".into()),
     }
 }
 
@@ -92,6 +94,7 @@ pub async fn search_albums(
         Platform::Kugou => {
             platforms::kugou::search::search_albums(&separator, keyword, page, limit).await
         }
+        Platform::Bilibili => Err("B 站仅支持分享链接解析，不支持专辑搜索".into()),
     }
 }
 
@@ -114,6 +117,7 @@ pub async fn fetch_album_songs(
         Platform::QqMusic => platforms::qqmusic::album::fetch_album_songs(&separator, id).await,
         Platform::Kuwo => platforms::kuwo::album::fetch_album_songs(&separator, id).await,
         Platform::Kugou => platforms::kugou::album::fetch_album_songs(&separator, id).await,
+        Platform::Bilibili => Err("B 站仅支持分享链接解析，不支持专辑".into()),
     }
 }
 
@@ -139,6 +143,7 @@ pub async fn search_artists(
         Platform::QqMusic => platforms::qqmusic::search::search_artists(keyword, page, limit).await,
         Platform::Kuwo => platforms::kuwo::search::search_artists(keyword, page, limit).await,
         Platform::Kugou => platforms::kugou::search::search_artists(keyword, page, limit).await,
+        Platform::Bilibili => Err("B 站仅支持分享链接解析，不支持歌手搜索".into()),
     }
 }
 
@@ -172,6 +177,7 @@ pub async fn fetch_artist_songs(
         Platform::Kugou => {
             platforms::kugou::artist::fetch_artist_songs(&separator, id, page, limit).await
         }
+        Platform::Bilibili => Err("B 站仅支持分享链接解析，不支持歌手".into()),
     }
 }
 
@@ -205,6 +211,7 @@ pub async fn fetch_artist_albums(
         Platform::Kugou => {
             platforms::kugou::artist::fetch_artist_albums(&separator, id, page, limit).await
         }
+        Platform::Bilibili => Err("B 站仅支持分享链接解析，不支持歌手".into()),
     }
 }
 

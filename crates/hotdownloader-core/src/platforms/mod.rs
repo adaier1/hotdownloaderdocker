@@ -6,8 +6,10 @@ use rand::Rng;
 mod platform;
 pub use platform::Platform;
 
+pub mod bilibili;
 pub mod kugou;
 pub mod kuwo;
+pub mod link_parse;
 pub mod login_status;
 pub mod lyric;
 pub mod netease;

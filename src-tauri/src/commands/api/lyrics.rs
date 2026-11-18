@@ -18,5 +18,6 @@ pub async fn get_lyric_by_id(
         }
         Platform::QqMusic => platforms::qqmusic::lyrics::get_lyric_by_id(song_id).await,
         Platform::Kuwo => platforms::kuwo::lyrics::get_lyric_by_id(song_id).await,
+        Platform::Bilibili => Err("B 站没有歌词接口".into()),
     }
 }

@@ -154,9 +154,21 @@ export async function fetchMcpKey(): Promise<string> {
     return result.key
 }
 
-/** 重置 MCP 接入密钥，返回新密钥。 */
+/** 立即重置 MCP 接入密钥，返回新密钥。 */
 export async function resetMcpKey(): Promise<string> {
     const result = await webRequest<McpInfo>('/api/mcp/reset', { method: 'POST' })
+    return result.key
+}
+
+/** 读取快捷指令调用密钥。 */
+export async function fetchShortcutKey(): Promise<string> {
+    const result = await webRequest<McpInfo>('/api/shortcut')
+    return result.key
+}
+
+/** 重置快捷指令密钥，旧链接立即失效。 */
+export async function resetShortcutKey(): Promise<string> {
+    const result = await webRequest<McpInfo>('/api/shortcut/reset', { method: 'POST' })
     return result.key
 }
 

@@ -12,7 +12,7 @@ pub mod lyrics;
 mod parser;
 pub mod playlist;
 pub mod search;
-mod song;
+pub mod song;
 pub mod suggest;
 
 #[cfg(test)]

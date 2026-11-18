@@ -7,3 +7,4 @@ pub mod mcp;
 pub mod music;
 pub mod notify;
 pub mod runtime;
+pub mod shortcut;

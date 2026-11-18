@@ -152,6 +152,18 @@ export interface PlaylistSongsResponse {
     songs: SongInfo[]
 }
 
+// 单曲详情返回
+export interface SongDetailResponse {
+    song: SongInfo
+}
+
+// 分享链接解析：平台与内容类型由链接推断，data 结构随 kind 变化
+export interface ShareLinkParseResponse {
+    platform: string
+    kind: 'song' | 'playlist' | 'album' | 'unknown'
+    data: PlaylistSongsResponse | AlbumSongsResponse | SongDetailResponse
+}
+
 // 歌单搜索结果项
 export interface PlaylistSearchItem {
     id: string

@@ -329,6 +329,7 @@ pub struct ServerRuntime {
     pub netease_store: Arc<hotdownloader_core::platforms::netease::login::Store>,
     pub auth: Arc<RwLock<crate::auth::AccessAuth>>,
     pub mcp_key: Arc<crate::mcp::McpKey>,
+    pub shortcut_key: Arc<crate::shortcut::ShortcutKey>,
     pub notify: Arc<crate::notify::NotifyConfig>,
     pub web_dir: PathBuf,
     auth_path: PathBuf,
@@ -343,6 +344,7 @@ impl ServerRuntime {
             .map_err(|error| format!("解析数据目录失败: {error}"))?;
         let auth_path = crate::auth::AccessAuth::file_path(&data_dir);
         let mcp_key = Arc::new(crate::mcp::McpKey::load(&data_dir)?);
+        let shortcut_key = Arc::new(crate::shortcut::ShortcutKey::load(&data_dir)?);
         let notify = Arc::new(crate::notify::NotifyConfig::load(&data_dir)?);
         let environment = Arc::new(ServerEnvironment::load(&data_dir)?);
         let events = Arc::new(ServerEvents::new());
@@ -390,6 +392,7 @@ impl ServerRuntime {
             auth: Arc::new(RwLock::new(auth)),
             auth_path,
             mcp_key,
+            shortcut_key,
             notify,
             web_dir: std::env::var_os("HOTDOWNLOADER_WEB_DIR")
                 .map(PathBuf::from)

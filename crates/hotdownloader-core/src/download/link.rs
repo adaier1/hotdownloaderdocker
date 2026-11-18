@@ -150,6 +150,15 @@ impl DownloadLinkProvider for PlatformDownloadLinkProvider {
                     )
                     .await
                 }
+                // B 站按文件名里的 bvid / cid 重新换取 dash 音频地址。
+                Platform::Bilibili => {
+                    crate::platforms::bilibili::link::get_download_link(
+                        &self.client,
+                        song_mid,
+                        filename,
+                    )
+                    .await
+                }
             }
         })
     }

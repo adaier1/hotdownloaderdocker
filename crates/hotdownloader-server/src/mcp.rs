@@ -622,7 +622,7 @@ impl McpKey {
 }
 
 /// 生成 32 位十六进制密钥；优先使用系统随机源，非 Unix 环境回退到时间散列。
-fn generate_key() -> String {
+pub(crate) fn generate_key() -> String {
     use std::io::Read;
 
     let mut bytes = [0u8; 16];
@@ -648,7 +648,7 @@ fn generate_key() -> String {
     key
 }
 
-fn constant_time_eq(expected: &str, supplied: &str) -> bool {
+pub(crate) fn constant_time_eq(expected: &str, supplied: &str) -> bool {
     let expected = expected.as_bytes();
     let supplied = supplied.as_bytes();
     let mut difference = expected.len() ^ supplied.len();

@@ -138,7 +138,7 @@ type NavItem = {
 const navItems: NavItem[] = [
     { key: '/dashboard', label: '仪表盘', icon: 'dashboard' },
     { key: '/search', label: '搜索', icon: 'search' },
-    { key: '/playlist', label: '歌单', icon: 'playlist' },
+    { key: '/playlist', label: '解析', icon: 'playlist' },
     { key: '/task', label: '下载任务', icon: 'task' },
     { key: '/library', label: '曲库', icon: 'library' },
     { key: '/account', label: '账号设置', shortLabel: '账号', icon: 'account' },

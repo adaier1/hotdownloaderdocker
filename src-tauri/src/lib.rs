@@ -159,6 +159,7 @@ pub fn run() {
             commands::api::suggest::fetch_hot_keywords,
             commands::api::suggest::fetch_suggestions,
             commands::api::playlist::fetch_playlist_songs,
+            commands::api::parse::parse_share_link,
             commands::api::playlist::search_playlists,
             commands::api::playlist::fetch_created_playlists,
             commands::api::playlist::fetch_created_playlist_songs,

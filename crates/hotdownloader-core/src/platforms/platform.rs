@@ -17,6 +17,22 @@ pub enum Platform {
     /// 网易云音乐
     #[serde(rename = "netease")]
     Netease,
+    /// 哔哩哔哩（仅支持视频链接解析，不参与搜索）
+    #[serde(rename = "bilibili")]
+    Bilibili,
+}
+
+impl Platform {
+    /// 与前端、持久化记录一致的平台标识。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::QqMusic => "qqmusic",
+            Self::Kuwo => "kuwo",
+            Self::Kugou => "kugou",
+            Self::Netease => "netease",
+            Self::Bilibili => "bilibili",
+        }
+    }
 }
 
 impl FromStr for Platform {
@@ -29,6 +45,7 @@ impl FromStr for Platform {
             "kuwo" => Ok(Self::Kuwo),
             "kugou" => Ok(Self::Kugou),
             "netease" => Ok(Self::Netease),
+            "bilibili" => Ok(Self::Bilibili),
             _ => Err(format!("不支持的平台: {value}")),
         }
     }

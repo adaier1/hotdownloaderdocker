@@ -9,6 +9,8 @@ use serde_json::Value;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MusicRequest {
+    /// 解析入口不需要平台，其余操作必须提供；缺省为空串时由各操作自行校验。
+    #[serde(default)]
     platform: String,
     #[serde(default)]
     keyword: String,
@@ -43,6 +45,20 @@ pub async fn execute(
     login_store: &dyn LoginCredentialStore,
     netease_store: &platforms::netease::login::Store,
 ) -> Result<Value, String> {
+    // 解析入口不要求用户先选平台：平台与内容类型都由链接自身决定。
+    if action == "links/parse" {
+        let fallback = request.platform.parse::<Platform>().ok();
+        // QQ 详情接口对会员/版权歌曲要求登录态，这里带上当前凭据（未登录时为 None）。
+        let qq_auth = platforms::qqmusic::login::auth_from_store(login_store);
+        return parse_share_link(
+            &request.input,
+            fallback,
+            artist_separator,
+            netease_store,
+            qq_auth.as_ref(),
+        )
+        .await;
+    }
     let platform = request.platform.parse::<Platform>()?;
     if request.page == 0 || request.limit == 0 || request.limit > 100 {
         return Err("无效的分页参数".into());
@@ -102,8 +118,7 @@ pub async fn execute(
             )
             .await?
         }
-        (Platform::Netease, "playlists/fetch") => {
-            platforms::netease::playlist::fetch_playlist_songs(
+        (Platform::Netease, "playlists/fetch") => {            platforms::netease::playlist::fetch_playlist_songs(
                 artist_separator,
                 request.input,
                 &netease_cookie,
@@ -383,5 +398,51 @@ pub async fn execute(
         }
         _ => return Err("未知音乐操作".into()),
     };
-    serde_json::from_str(&result).map_err(|error| format!("解析平台响应失败: {error}"))
+    let mut value: Value =
+        serde_json::from_str(&result).map_err(|error| format!("解析平台响应失败: {error}"))?;
+    // 各平台解析器不写平台标识，这里统一补齐，返回的歌曲可直接用于创建下载任务。
+    inject_platform(&mut value, platform);
+    Ok(value)
+}
+
+fn inject_platform(value: &mut Value, platform: Platform) {
+    let label = serde_json::json!(platform.as_str());
+    if let Some(songs) = value.get_mut("songs").and_then(Value::as_array_mut) {
+        for song in songs {
+            if let Some(object) = song.as_object_mut() {
+                object
+                    .entry("platform")
+                    .or_insert_with(|| label.clone());
+            }
+        }
+    }
+    if let Some(song) = value.get_mut("song").and_then(Value::as_object_mut) {
+        song.entry("platform").or_insert_with(|| label.clone());
+    }
+}
+
+/// 解析分享链接：识别平台与内容类型，再复用各平台已有的歌单 / 专辑接口取数据。
+async fn parse_share_link(
+    input: &str,
+    fallback: Option<Platform>,
+    artist_separator: &str,
+    netease_store: &platforms::netease::login::Store,
+    qq_auth: Option<&platforms::qqmusic::credentials::QqAuth>,
+) -> Result<Value, String> {
+    let link = platforms::link_parse::resolve(input, fallback).await?;
+    let cookie = if link.platform == Platform::Netease {
+        netease_store.cookie()?
+    } else {
+        String::new()
+    };
+    let payload = platforms::link_parse::fetch(&link, artist_separator, &cookie, qq_auth).await?;
+    let mut data: Value = serde_json::from_str(&payload)
+        .map_err(|error| format!("解析平台响应失败: {error}"))?;
+    // 歌单/专辑返回的是平台原始歌曲数组，缺少平台标识；单曲已由核心补齐，这里幂等补齐两种结构。
+    inject_platform(&mut data, link.platform);
+    Ok(serde_json::json!({
+        "platform": link.platform.as_str(),
+        "kind": link.kind.as_str(),
+        "data": data,
+    }))
 }

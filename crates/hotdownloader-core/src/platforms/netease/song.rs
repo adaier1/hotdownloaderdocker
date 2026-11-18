@@ -1,5 +1,5 @@
 //! 歌曲详情批量补全，供搜索、歌单和封面查询复用。
-use super::{client::api, parser::song};
+use super::{client::{api, validate_id}, parser::song};
 use serde_json::{json, Value};
 
 pub(super) async fn fetch_details(
@@ -39,4 +39,15 @@ pub(super) async fn fetch_details(
         );
     }
     Ok(result)
+}
+
+/// 按歌曲 ID 取单曲详情，供分享链接解析复用同一套歌词与音质字段。
+pub async fn fetch_song_detail(separator: &str, id: &str, cookie: &str) -> Result<String, String> {
+    let id = validate_id(id)?;
+    let songs = fetch_details(&[id], separator, cookie).await?;
+    songs
+        .into_iter()
+        .next()
+        .map(|song| song.to_string())
+        .ok_or_else(|| "网易云未返回该歌曲信息".to_string())
 }

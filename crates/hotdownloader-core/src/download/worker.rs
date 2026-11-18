@@ -140,10 +140,14 @@ pub async fn download_task(
                     {
                         break 'download;
                     }
+                    // 凭据失效时换音质也没用，直接失败；"该音质拿不到"（如 QQ 的 104003
+                    // 会员专享档位）则交给降级继续尝试下一档。
+                    let credential_error =
+                        crate::platforms::login_status::is_auth_error(ctx.platform, &e)
+                            || e.contains("凭据")
+                            || e.contains("凭证");
                     if let Some(fallback) = quality_fallback.filter(|_| {
-                        !e.contains("凭据")
-                            && !e.contains("凭证")
-                            && !e.contains("登录")
+                        !credential_error
                             && !crate::download::link::is_retryable_link_error(&e)
                             && !e.starts_with("取链接口 HTTP 错误")
                     }) {

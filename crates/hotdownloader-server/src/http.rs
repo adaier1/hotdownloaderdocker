@@ -236,6 +236,10 @@ pub async fn handle(
     if path == "/mcp" {
         return Ok(crate::mcp::handle(request, runtime).await);
     }
+    // 快捷指令入口：用 URL 里的 key 认证，供手机捷径等脚本直接调用。
+    if path == "/api/shortcut/parse" {
+        return Ok(crate::shortcut::handle_parse(request, runtime).await);
+    }
     if !path.starts_with("/api/") && path != "/api" {
         return Ok(if request.method() == Method::GET {
             static_response(&runtime.web_dir, &path)
@@ -283,6 +287,14 @@ pub async fn handle(
             json!({ "key": runtime.mcp_key.value() }),
         ),
         (Method::POST, "/api/mcp/reset") => match runtime.mcp_key.reset() {
+            Ok(key) => json_response(StatusCode::OK, json!({ "key": key })),
+            Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
+        },
+        (Method::GET, "/api/shortcut") => json_response(
+            StatusCode::OK,
+            json!({ "key": runtime.shortcut_key.value() }),
+        ),
+        (Method::POST, "/api/shortcut/reset") => match runtime.shortcut_key.reset() {
             Ok(key) => json_response(StatusCode::OK, json!({ "key": key })),
             Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
         },

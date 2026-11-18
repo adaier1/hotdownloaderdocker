@@ -29,6 +29,14 @@
             </n-form>
         </div>
 
+        <!-- 快捷指令：给 iOS 捷径等脚本直接调用，解析后自动建任务 -->
+        <div v-if="!native" class="set-card">
+            <div class="set-card-title">快捷指令</div>
+            <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 200">
+                <ShortcutSetting />
+            </n-form>
+        </div>
+
         <!-- 通知设置：飞书机器人推送（仅 Web 版） -->
         <div v-if="!native" class="set-card">
             <div class="set-card-title">通知设置</div>
@@ -89,6 +97,7 @@ import WriteMetadataSetting from '../components/settings/WriteMetadataSetting.vu
 import DownloadLrcSetting from '../components/settings/DownloadLrcSetting.vue'
 import SecuritySetting from '../components/settings/SecuritySetting.vue'
 import McpSetting from '../components/settings/McpSetting.vue'
+import ShortcutSetting from '../components/settings/ShortcutSetting.vue'
 import FeishuNotifySetting from '../components/settings/FeishuNotifySetting.vue'
 import DuplicateStrategySetting from '../components/settings/DuplicateStrategySetting.vue'
 import NotifySetting from '../components/settings/NotifySetting.vue'

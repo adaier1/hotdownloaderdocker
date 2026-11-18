@@ -1487,6 +1487,23 @@ pub async fn get_login_status(store: &dyn LoginCredentialStore) -> Result<String
     .to_string())
 }
 
+/// 从登录存储取出凭据，供解析等只读接口携带登录态。
+///
+/// 这里不做有效期校验与刷新——解析是即时操作，凭据过期时详情接口会直接报错；
+/// 下载路径另有 [`super::credentials::QqCredentialSource`] 负责刷新。
+pub fn auth_from_store(store: &dyn LoginCredentialStore) -> Option<QqAuth> {
+    let settings = store.load().ok()?;
+    let uin = settings["loginUin"].as_str().unwrap_or("");
+    let authst = settings["authst"].as_str().unwrap_or("");
+    if uin.is_empty() || authst.is_empty() {
+        return None;
+    }
+    Some(QqAuth {
+        uin: uin.to_string(),
+        authst: authst.to_string(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{get_login_status, logout, FileLoginStore, LoginCredentialStore};

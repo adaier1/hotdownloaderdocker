@@ -6,6 +6,8 @@ import type {
     SearchSuggestionData,
     PlaylistSongsResponse,
     PlaylistSearchResponse,
+    ShareLinkParseResponse,
+    SongDetailResponse,
     AlbumSearchResponse,
     AlbumSongsResponse,
     ArtistSearchResponse,
@@ -87,6 +89,26 @@ export async function fetchPlaylistSongs(platform: string, input: string): Promi
         ...s,
         platform
     }))
+    return parsed
+}
+
+/**
+ * 解析分享链接：平台与内容类型由链接自身识别，无需先选平台。
+ * 只有歌单 ID 时用 `platform` 指定所属平台。
+ */
+export async function parseShareLink(input: string, platform?: string): Promise<ShareLinkParseResponse> {
+    const parsed = await musicCall<ShareLinkParseResponse>('parse_share_link', 'links/parse', {
+        input,
+        platform: platform ?? ''
+    })
+    // 单曲只返回一首歌；歌单与专辑返回同名 songs 字段，统一补上解析出的平台标识
+    if (parsed.kind === 'song') {
+        const single = parsed.data as SongDetailResponse
+        single.song = { ...single.song, platform: parsed.platform }
+        return parsed
+    }
+    const data = parsed.data as PlaylistSongsResponse | AlbumSongsResponse
+    data.songs = (data.songs ?? []).map(song => ({ ...song, platform: parsed.platform }))
     return parsed
 }
 

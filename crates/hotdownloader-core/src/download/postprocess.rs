@@ -74,6 +74,8 @@ pub async fn prepare_assets(
             Platform::Kuwo => {
                 crate::platforms::kuwo::lyrics::get_lyric_by_id(context.song_id).await
             }
+            // B 站没有歌词接口，返回空歌词，由收尾流程补「暂无歌词」占位。
+            Platform::Bilibili => Ok(Default::default()),
         }
     })
     .await
@@ -89,7 +91,14 @@ where
     Fut: std::future::Future<Output = Result<LyricData, String>>,
 {
     let lyric = if config.write_metadata || config.download_lrc {
-        let mut lyric = retry_asset("歌词", fetch_lyric).await?;
+        // 歌词是附属资源：平台接口抖动时按"无歌词"继续，不能把已下载完的音频判成任务失败。
+        let mut lyric = match retry_asset("歌词", fetch_lyric).await {
+            Ok(lyric) => lyric,
+            Err(error) => {
+                log::warn!("任务 {} 获取歌词失败，按无歌词继续: {error}", context.task_id);
+                Default::default()
+            }
+        };
         // 成功响应中没有歌词不等于请求失败，也不一定表示歌曲是纯音乐。
         if config.download_lrc
             && ![&lyric.lrc, &lyric.elrc]
@@ -117,18 +126,25 @@ where
         cover_url = retry_asset("封面地址", || {
             crate::platforms::kuwo::cover::fetch_cover(context.song_id)
         })
-        .await?;
+        .await
+        .unwrap_or_default();
     }
 
     let cover_bytes = if needs_cover && !cover_url.is_empty() {
-        Some(
-            retry_asset("封面", || async {
-                fetch_cover_bytes(context.platform, &cover_url, config.cover_quality)
-                    .await
-                    .ok_or_else(|| "所有封面地址均不可用或返回了无效图片".to_string())
-            })
-            .await?,
-        )
+        // 封面同样属于附属资源：拉取失败时只写标签不嵌图，不影响音频本身。
+        match retry_asset("封面", || async {
+            fetch_cover_bytes(context.platform, &cover_url, config.cover_quality)
+                .await
+                .ok_or_else(|| "所有封面地址均不可用或返回了无效图片".to_string())
+        })
+        .await
+        {
+            Ok(bytes) => Some(bytes),
+            Err(error) => {
+                log::warn!("任务 {} 获取封面失败，跳过封面: {error}", context.task_id);
+                None
+            }
+        }
     } else if config.download_cover {
         return Err("歌曲未提供封面地址，无法保存封面".into());
     } else {

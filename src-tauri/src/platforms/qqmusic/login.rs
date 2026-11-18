@@ -110,6 +110,13 @@ pub(crate) async fn get_login_status(app: AppHandle) -> Result<String, String> {
     qq_login::get_login_status(&TauriLoginStore { app }).await
 }
 
+/// 解析分享链接时带上当前登录态；未登录返回 None，行为与匿名请求一致。
+pub(crate) fn auth_from_store(
+    app: &AppHandle,
+) -> Option<hotdownloader_core::platforms::qqmusic::credentials::QqAuth> {
+    qq_login::auth_from_store(&TauriLoginStore::new(app))
+}
+
 pub(crate) async fn fetch_created_playlists(app: &AppHandle) -> Result<String, String> {
     hotdownloader_core::platforms::qqmusic::playlist::fetch_created_playlists(
         &TauriLoginStore::new(app),

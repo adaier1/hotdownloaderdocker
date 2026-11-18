@@ -28,17 +28,13 @@ impl DownloadPostprocessor for TauriDownloadPostprocessor {
         &'a self,
         request: PostprocessRequest<'a>,
         progress_sink: &'a dyn DownloadProgressSink,
-    ) -> BoxFuture<'a, Option<String>> {
+    ) -> BoxFuture<'a, Result<Vec<String>, String>> {
         Box::pin(async move {
             let context = request.context;
             let config = request.config;
-            let assets = prepare_assets(
-                context,
-                config.write_metadata,
-                config.download_lrc,
-                config.cover_quality,
-            )
-            .await;
+            let assets = prepare_assets(context, config).await?;
+            // 与本地实现一致：返回本次写出的旁挂文件路径，供任务记录展示。
+            let mut paths = Vec::new();
 
             if config.write_metadata {
                 if request.is_saf {
@@ -67,21 +63,25 @@ impl DownloadPostprocessor for TauriDownloadPostprocessor {
                             .as_deref()
                             .filter(|content| !content.trim().is_empty())
                         {
-                            return write_saf_lrc_file(
+                            if let Some(path) = write_saf_lrc_file(
                                 &self.app,
                                 content,
                                 request.audio_path,
                                 request.saf_folder_uri.map(str::to_string),
                             )
-                            .await;
+                            .await
+                            {
+                                paths.push(path);
+                            }
                         }
-                    } else {
-                        return write_local_lrc(request.audio_path, lyric);
+                    } else if let Some(path) = write_local_lrc(request.audio_path, lyric) {
+                        paths.push(path);
                     }
+                } else {
+                    log::info!("无普通歌词，跳过 LRC 文件创建");
                 }
-                log::info!("无普通歌词，跳过 LRC 文件创建");
             }
-            None
+            Ok(paths)
         })
     }
 }

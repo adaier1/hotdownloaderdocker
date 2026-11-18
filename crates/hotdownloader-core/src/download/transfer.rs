@@ -25,6 +25,15 @@ fn download_client() -> &'static reqwest::Client {
     })
 }
 
+/// B 站的音频 CDN 会校验来源页，其余平台沿用 QQ 的 Referer。
+fn referer_for(url: &str) -> &'static str {
+    if crate::platforms::bilibili::link::is_stream_host(url) {
+        "https://www.bilibili.com"
+    } else {
+        "https://y.qq.com"
+    }
+}
+
 /// 使用当前已写入字节数请求 HTTP Range；临时请求错误最多尝试三次。
 /// 返回原始响应，以便文件适配器处理普通路径或 Android SAF 文件。
 pub async fn request_download_response(
@@ -36,7 +45,7 @@ pub async fn request_download_response(
     loop {
         let mut request = download_client()
             .get(url)
-            .header("Referer", "https://y.qq.com");
+            .header("Referer", referer_for(url));
         if downloaded > 0 {
             request = request.header(RANGE, format!("bytes={downloaded}-"));
         }

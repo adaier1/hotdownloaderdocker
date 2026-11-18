@@ -92,7 +92,15 @@ pub async fn fetch_vkey_link(
         .map_err(|e| format!("读取响应失败: {}", e))?;
     let data: Value = serde_json::from_str(&text).map_err(|e| format!("解析响应失败: {}", e))?;
 
-    parse_vkey_response(&data, filename)
+    parse_vkey_response(&data, filename).map_err(|error| {
+        // 已登录时 104003 基本意味着曲目本身受限（会员专享、已下架），
+        // 再提示"去登录"会误导，这里换成能区分两种情况的文案。
+        if credentials.is_some() && error.contains("result=104003") {
+            "QQ 音乐拒绝提供下载链接（result=104003）：该歌曲可能需要会员或已下架，也可能是登录已过期，可在「账号设置」重新登录".to_string()
+        } else {
+            error
+        }
+    })
 }
 
 /// 单独解析响应，便于验证 CDN 选择、拒绝错误和明文/加密格式的密钥边界。
@@ -127,7 +135,8 @@ fn parse_vkey_response(data: &Value, filename: &str) -> Result<(String, String),
     let result_code = item["result"].as_i64().unwrap_or(0);
     if purl.is_empty() || result_code != 0 {
         let err_msg = match result_code {
-            104003 => "无法获取下载链接（QQ result=104003）".to_string(),
+            104003 => "QQ 音乐未登录或该歌曲无下载权限（result=104003），请在「账号设置」登录后重试"
+                .to_string(),
             104004 => "该歌曲已下架或禁止下载".to_string(),
             _ => format!(
                 "获取下载链接失败，错误码: {}，详情: {:?}",
