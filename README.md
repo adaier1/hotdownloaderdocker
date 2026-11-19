@@ -39,13 +39,27 @@ Rust 服务同时托管 Web 页面与 API，浏览器只访问一个端口，无
 ```
 
 - **后端**：`crates/hotdownloader-core`（共享核心）+ `crates/hotdownloader-server`（HTTP/SSE 服务），与上游 v2.0.0 保持一致。
-- **前端**：上游 v2.0.0 界面，风格浅色主题（`src/style.css`、`src/config/theme.ts`、`src/composables/useAppTheme.ts`、`src/components/NavLayout.vue`）。
+- **前端**：Vue 3 + Naive UI，「温石纸面」浅色主题（`src/style.css`、`src/config/theme.ts`、`src/components/NavLayout.vue`）；解析/下载/连接事件写入独立日志页（`src/stores/logStore.ts`、`src/views/LogView.vue`）。
 - **访问认证**：对外监听时必须设置用户名密码或令牌（见下）。
 
 ---
-| 首页 | 下载 | 搜索 | 曲库 | 设置 |
-| --- | --- | --- | --- | --- |
-|<img src="image/首页.png" width="100%">|<img src="image/下载.png" width="100%">|<img src="image/搜索.png" width="100%">|<img src="image/曲库.png" width="100%">|<img src="image/设置.png" width="100%">|
+| 总览 | 下载任务 | 搜索 | 曲库 |
+| --- | --- | --- | --- |
+| <img src="image/总览.png"> | <img src="image/下载任务.png"> | <img src="image/搜索.png"> | <img src="image/曲库.png"> |
+
+| 日志 | 账号 | 设置 | 登录 |
+| --- | --- | --- | --- |
+| <img src="image/日志.png"> | <img src="image/账号.png"> | <img src="image/设置.png"> | <img src="image/登录.png"> |
+
+## 🆕 界面与交互更新
+
+- **全新「纸面」视觉**：暖灰画布 + 纯白卡片 + 近黑主操作，统一圆角、细描边与等宽数字，去掉花哨渐变。
+- **总览页重做**：四格关键指标、近 7 天完成/失败趋势细柱图、最近下载列表与曲库构成。
+- **独立日志页**：解析、下载、账号、连接事件统一留痕，可按「解析 / 下载 / 仅失败」筛选，**只保留最近 200 条**，超出自动丢弃；日志保存在本机，不写服务端。
+- **任务列表最新在前**：新加入的任务永远排在列表顶部，各状态标签一致生效。
+- **下载不再打断操作**：移除「添加任务后跳转至任务页」开关，下载后停留在当前页面继续挑歌。
+- **品牌标识统一**：站点图标、侧栏与登录页统一为 H 标记，Web 访问页重排为纸面卡片。
+
 ---
 
 ## 🚀 Docker 部署（推荐）
