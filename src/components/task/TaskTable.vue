@@ -79,13 +79,17 @@ function renderProgress(row: TaskRecord) {
         return '-'
     }
 
-    // 下载中或暂停：显示进度条和速度
+    // 下载中或暂停：显示细进度条和速度
     const children = [
-        h(NProgress, {
-            percentage: percent,
-            indicatorTextPlacement: 'inside',
-            height: 20,
-        })
+        h('div', { class: 'progress-wrap' }, [
+            h(NProgress, {
+                percentage: percent,
+                showIndicator: false,
+                height: 4,
+                border: 0,
+            }),
+            h('span', { class: 'progress-text' }, `${percent}%`),
+        ]),
     ]
 
     if (row.speed && row.speed > 0) {

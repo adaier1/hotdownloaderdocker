@@ -1,27 +1,27 @@
 <template>
     <div class="library-view">
-        <div class="head-row">
-            <div>
+        <header class="page-head rise" style="--i: 0">
+            <div class="page-head-main">
+                <div class="eyebrow">Library · 曲库</div>
                 <div class="page-title">曲库</div>
-                <div class="page-sub">下载目录中的歌曲 · 共 {{ store.files.length }} 首</div>
+                <div class="page-sub">下载目录中已落盘的每一首 · 共 {{ store.files.length }} 首 · {{ formatFileSize(store.totalSize) }}</div>
             </div>
-            <div class="head-right">
-                <button class="md-btn-dl batch-btn" type="button" :disabled="selected.length === 0"
-                    @click="batchDelete">
+            <div class="page-head-actions">
+                <button class="btn-line danger" type="button" :disabled="selected.length === 0" @click="batchDelete">
                     批量删除{{ selected.length > 0 ? `（${selected.length}）` : '' }}
                 </button>
-                <button class="btn ghost sm" type="button" :disabled="store.loading" @click="reload">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
-                        stroke-linejoin="round">
+                <button class="btn-line" type="button" :disabled="store.loading" @click="reload">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
+                        stroke-linejoin="round" aria-hidden="true">
                         <path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" />
                     </svg>
                     {{ store.loading ? '读取中…' : '刷新' }}
                 </button>
             </div>
-        </div>
+        </header>
 
-        <div class="dir-bar">
-            <span class="dir-label">下载目录</span>
+        <div class="dir-bar rise" style="--i: 1">
+            <span class="dir-label">DOWNLOAD DIR</span>
             <span class="dir-path" :title="store.directory || '未知'">{{ store.directory || '未知' }}</span>
         </div>
 
@@ -29,7 +29,7 @@
             读取曲库失败：{{ store.error }}
         </div>
 
-        <div class="card">
+        <div class="card rise" style="--i: 2">
             <div class="toolbar">
                 <n-checkbox :checked="allSelected" :indeterminate="someSelected" @update:checked="toggleAll">
                     全选
@@ -229,93 +229,31 @@ onActivated(() => { void store.load(true) })
     min-width: 0;
 }
 
-.head-row {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-    flex-wrap: wrap;
+.btn-line.danger {
+    color: var(--danger);
+    border-color: #e8d2cd;
 }
 
-.page-title {
-    font-size: 22px;
-    font-weight: 700;
-    color: var(--text-primary);
-}
-
-.page-sub {
-    font-size: 13px;
-    color: var(--text-secondary);
-    margin-top: 4px;
-}
-
-.head-right {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding-top: 4px;
-}
-
-.batch-btn {
-    height: 32px;
-    padding: 0 16px;
-    font-size: 13px;
-    border-radius: 8px;
-}
-
-.batch-btn:disabled {
-    opacity: 0.5;
-    cursor: default;
-}
-
-.btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    height: 32px;
-    padding: 0 16px;
-    border-radius: 8px;
-    font-size: 13px;
-    font-weight: 600;
-    font-family: inherit;
-    cursor: pointer;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text-secondary);
-    transition: color var(--transition), border-color var(--transition);
-}
-
-.btn:hover:not(:disabled) {
-    color: var(--text-primary);
-    border-color: #c9cdd4;
-}
-
-.btn:disabled {
-    opacity: 0.6;
-    cursor: default;
-}
-
-.btn svg {
-    width: 15px;
-    height: 15px;
+.btn-line.danger:disabled {
+    opacity: 0.4;
 }
 
 .dir-bar {
     display: flex;
     align-items: center;
-    gap: 10px;
-    margin-top: 18px;
+    gap: 14px;
     padding: 10px 16px;
-    background: var(--surface);
-    border: 1px solid var(--border);
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-light);
     border-radius: var(--radius-md);
     min-width: 0;
 }
 
 .dir-label {
     flex: none;
-    font-size: 12.5px;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
     color: var(--text-tertiary);
 }
 
@@ -323,7 +261,7 @@ onActivated(() => { void store.load(true) })
     flex: 1;
     min-width: 0;
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: 11.5px;
     color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
@@ -334,51 +272,59 @@ onActivated(() => { void store.load(true) })
     margin-top: 16px;
     padding: 12px 16px;
     border-radius: var(--radius-md);
-    background: var(--danger-weak, #fff1f0);
+    background: var(--danger-weak);
     color: var(--danger);
     font-size: 13px;
 }
 
 .card {
-    margin-top: 16px;
+    margin-top: 14px;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
     overflow: hidden;
 }
 
 .toolbar {
     display: flex;
     align-items: center;
-    gap: 14px;
-    padding: 14px 18px;
+    gap: 16px;
+    padding: 13px 18px;
     border-bottom: 1px solid var(--border);
 }
 
 .input {
     flex: 1;
     min-width: 0;
-    height: 38px;
-    padding: 0 14px;
+    height: 36px;
+    padding: 0 13px;
     border: 1px solid var(--border);
-    border-radius: 9px;
-    font-size: 14px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
     font-family: inherit;
-    background: #fff;
+    background: var(--surface-sunken);
     color: var(--text-primary);
-    transition: border-color var(--transition), box-shadow var(--transition);
+    transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
 }
 
 .input:focus {
     outline: none;
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px rgba(43, 107, 243, 0.12);
+    border-color: var(--border-2);
+    background: var(--surface);
+    box-shadow: 0 0 0 4px rgba(28, 28, 22, 0.05);
+}
+
+.input::placeholder {
+    color: var(--text-tertiary);
 }
 
 .count-text {
     flex: none;
-    font-size: 12.5px;
+    font-family: var(--mono);
+    font-size: 10.5px;
     color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
 }
 
 .table-wrap {
@@ -392,20 +338,27 @@ table {
 }
 
 th {
-    font-size: 12.5px;
+    font-family: var(--mono);
+    font-size: 10.5px;
     font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
     color: var(--text-tertiary);
     text-align: left;
     padding: 12px 18px;
     border-bottom: 1px solid var(--border);
-    background: #fafbfc;
+    background: transparent;
 }
 
 td {
-    padding: 16px 18px;
-    border-bottom: 1px solid var(--border);
-    font-size: 14px;
+    padding: 13px 18px;
+    border-bottom: 1px solid var(--border-light);
+    font-size: 13.5px;
     vertical-align: middle;
+}
+
+th:last-child {
+    text-align: right;
 }
 
 tbody tr:last-child td {
@@ -413,11 +366,11 @@ tbody tr:last-child td {
 }
 
 tbody tr:hover {
-    background: #fafbfd;
+    background: var(--surface-hover);
 }
 
 .cell-title {
-    font-weight: 600;
+    font-weight: 500;
     color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
@@ -425,87 +378,97 @@ tbody tr:hover {
 }
 
 .cell-sub {
-    font-size: 12.5px;
+    font-size: 11.5px;
     color: var(--text-tertiary);
-    margin-top: 4px;
+    margin-top: 3px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
 .cell-size {
+    font-family: var(--mono);
+    font-size: 11.5px;
     color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
 }
 
 .tag {
     display: inline-block;
-    font-size: 12px;
-    padding: 3px 10px;
-    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    padding: 3px 8px;
+    border-radius: 5px;
     white-space: nowrap;
-    line-height: 1.5;
-    border: 1px solid var(--border-2, #dde1e6);
+    line-height: 1.55;
+    border: 1px solid var(--border-light);
     color: var(--text-secondary);
-    background: #fff;
+    background: var(--surface-sunken);
+    text-transform: uppercase;
 }
 
 .tag.gold {
-    color: #8a5a00;
-    border-color: #e9cd7c;
-    background: #fff8e3;
+    color: #86601e;
+    border-color: #e6d8b4;
+    background: #fbf5e4;
 }
 
 .tag.gray {
     color: var(--text-tertiary);
-    background: #f4f5f7;
+    background: var(--surface-sunken);
     border-color: transparent;
 }
 
 .row-actions {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     flex-wrap: wrap;
+    justify-content: flex-end;
 }
 
 .link-action {
     border: none;
     background: none;
-    padding: 4px 8px;
-    border-radius: 6px;
-    color: var(--accent);
-    font-size: 13px;
+    padding: 4px 9px;
+    border-radius: var(--radius-pill);
+    color: var(--text-secondary);
+    font-size: 12px;
     font-weight: 500;
     font-family: inherit;
     cursor: pointer;
-    transition: background var(--transition);
+    transition: color var(--transition), background var(--transition);
 }
 
 .link-action:hover {
-    background: var(--accent-light);
+    background: var(--surface-sunken);
+    color: var(--text-primary);
 }
 
 .btn-del {
-    border: none;
-    background: var(--danger);
-    color: #fff;
-    border-radius: 8px;
-    padding: 7px 18px;
-    font-size: 13px;
+    border: 1px solid transparent;
+    background: none;
+    color: var(--text-tertiary);
+    border-radius: var(--radius-pill);
+    padding: 4px 9px;
+    font-size: 12px;
     font-weight: 500;
     font-family: inherit;
     cursor: pointer;
-    transition: background var(--transition);
+    transition: color var(--transition), background var(--transition);
 }
 
 .btn-del:hover {
-    background: #e63a3c;
+    color: var(--danger);
+    background: var(--danger-weak);
 }
 
 .empty-cell {
     text-align: center;
     color: var(--text-tertiary);
     padding: 44px 18px;
+    font-size: 13px;
 }
 
 @media (max-width: 767px) {
@@ -518,7 +481,7 @@ tbody tr:hover {
         padding: 12px;
     }
 
-    .head-right {
+    .page-head-actions {
         width: 100%;
     }
 }

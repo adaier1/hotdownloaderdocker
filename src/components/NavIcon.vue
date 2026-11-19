@@ -21,6 +21,11 @@
       <polyline points="7 10 12 15 17 10" />
       <line x1="12" y1="15" x2="12" y2="3" />
     </template>
+    <template v-else-if="name === 'logs'">
+      <rect x="3" y="4" width="18" height="16" rx="3.5" />
+      <path d="m7.5 9.5 2.6 2.5-2.6 2.5" />
+      <path d="M12.8 14.5h4" />
+    </template>
     <template v-else-if="name === 'library'">
       <path d="M4 6a2 2 0 0 1 2-2h4.2a2 2 0 0 1 1.4.6L13 6h5a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6z" />
     </template>
@@ -37,5 +42,7 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{ name: 'dashboard' | 'search' | 'playlist' | 'task' | 'library' | 'account' | 'settings' }>()
+defineProps<{
+  name: 'dashboard' | 'search' | 'playlist' | 'task' | 'library' | 'logs' | 'account' | 'settings'
+}>()
 </script>

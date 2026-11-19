@@ -1,20 +1,26 @@
 <template>
     <div class="search-bar-group">
         <div class="search-bar md-search">
+            <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="7.5" />
+                <path d="m20.5 20.5-4.2-4.2" />
+            </svg>
             <n-input v-model:value="keywordModel" :placeholder="placeholder" clearable @keyup.enter="handleSearch"
                 @clear="handleClear" class="search-input" />
+
+            <!-- 平台选择：作为检索范围内嵌在输入框右侧 -->
+            <div class="platform-switch">
+                <button v-for="p in platformOptions" :key="p.key" type="button" class="platform-chip"
+                    :class="{ active: p.key === platform }" @click="handlePlatformSelect(p.key)">
+                    {{ p.label }}
+                </button>
+            </div>
+
             <n-button type="primary" @click="handleSearch" :disabled="!keywordModel.trim() || loading" :loading="loading"
                 class="search-btn">
                 {{ buttonText }}
             </n-button>
-        </div>
-
-        <!-- 平台选择：搜索栏下方的可点击胶囊 -->
-        <div class="md-pills platform-switch">
-            <button v-for="p in platformOptions" :key="p.key" type="button" class="md-pill"
-                :class="{ active: p.key === platform }" @click="handlePlatformSelect(p.key)">
-                {{ p.label }}
-            </button>
         </div>
     </div>
 </template>
@@ -91,20 +97,58 @@ function handleClear() {
 }
 
 .search-bar {
-    --search-height: 40px;
+    --search-height: 52px;
     --search-font-size: 15px;
-    gap: 12px;
+    gap: 10px;
+    padding: 5px 7px 5px 20px;
+    max-width: 820px;
 }
 
+.search-icon {
+    width: 18px;
+    height: 18px;
+    flex: none;
+    color: var(--text-tertiary);
+    transition: color var(--transition);
+}
+
+.search-bar:focus-within .search-icon {
+    color: var(--text-primary);
+}
+
+/* 平台切换：内嵌在输入框右侧的等宽小胶囊 */
 .platform-switch {
-    padding: 0 2px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex: none;
+    padding-left: 10px;
+    border-left: 1px solid var(--border-light);
 }
 
-.platform-switch .md-pill {
-    padding: 6px 16px;
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: 0.5px;
+.platform-chip {
+    height: 26px;
+    padding: 0 9px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-tertiary);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: color var(--transition), background var(--transition), border-color var(--transition);
+}
+
+.platform-chip:hover {
+    color: var(--text-primary);
+    background: var(--surface-sunken);
+}
+
+.platform-chip.active {
+    color: var(--surface);
+    background: var(--accent);
+    border-color: var(--accent);
 }
 
 .search-bar .search-input {
@@ -152,11 +196,17 @@ function handleClear() {
     align-items: center;
 }
 
+.search-bar .search-btn:disabled {
+    --n-color-disabled: var(--surface-sunken);
+    --n-text-color-disabled: var(--text-tertiary);
+    --n-border-disabled: 1px solid transparent;
+}
+
 .search-bar .search-btn {
-    height: var(--search-height) !important;
+    height: calc(var(--search-height) - 12px) !important;
     padding: 0 22px !important;
-    font-size: 14px !important;
-    border-radius: 9px !important;
+    font-size: 13.5px !important;
+    border-radius: 999px !important;
     display: inline-flex !important;
     align-items: center;
     justify-content: center;
@@ -166,14 +216,24 @@ function handleClear() {
 @media (max-width: 767px) {
     .search-bar {
         flex-wrap: wrap;
+        padding: 8px 10px 10px 16px;
+        border-radius: 22px;
+    }
+
+    .platform-switch {
+        order: 3;
+        width: 100%;
+        padding-left: 0;
+        padding-top: 2px;
+        border-left: none;
     }
 
     .search-btn {
-        min-height: 44px;
+        min-height: 40px;
     }
 
-    .platform-switch .md-pill {
-        min-height: 40px;
+    .platform-chip {
+        min-height: 34px;
     }
 }
 </style>

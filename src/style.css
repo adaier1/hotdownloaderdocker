@@ -9,10 +9,10 @@
 html,
 body {
   height: 100%;
-  font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text',
-    'Helvetica Neue', Helvetica, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', Arial, sans-serif;
+  font-family: var(--font-body);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 #app {
@@ -22,46 +22,80 @@ body {
   height: 100dvh;
 }
 
-/* ===== 设计令牌（MusicDock 风格 · 浅色） ===== */
+/* =========================================================
+   设计令牌 —— 温石纸面（Stone Paper）
+   暖灰纸感画布 + 纯白卡片 + 近黑主操作 + 极细描边
+   ========================================================= */
 :root {
-  --bg: #f5f6f8;
+  /* 字体：展示字（拉丁）用 Instrument Sans，中文回落到系统黑体 */
+  --font-display: 'Instrument Sans', 'PingFang SC', 'HarmonyOS Sans SC', 'MiSans',
+    'Source Han Sans SC', 'Microsoft YaHei', sans-serif;
+  --font-body: 'Instrument Sans', 'PingFang SC', 'HarmonyOS Sans SC', 'MiSans',
+    'Source Han Sans SC', 'Microsoft YaHei', sans-serif;
+  --font: var(--font-body);
+  --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+
+  /* 画布与表面 */
+  --bg: #f2f2ed;
+  --bg-body: #f2f2ed;
+  --bg-content: #f2f2ed;
+  --bg-sidebar: #f7f7f2;
+  --bg-bottom: #fbfbf7;
   --surface: #ffffff;
-  --panel: #ffffff;
-  --text-primary: #1f2329;
-  --text-secondary: #5f6672;
-  --text-tertiary: #9aa1ab;
-  --accent: #2b6bf3;
-  --accent-hover: #1f55c8;
-  --accent-light: #e8f0fe;
-  --border: #e6e8eb;
-  --border-light: #eef0f3;
-  --border-2: #dde1e6;
-  --success: #16a34a;
-  --warning: #d97706;
-  --danger: #ff4d4f;
-  --danger-weak: #fff1f0;
-  --green: #16a34a;
-  --green-weak: #e8f8ee;
-  --orange: #d97706;
-  --orange-weak: #fdf3e3;
-  --purple: #7c3aed;
-  --purple-weak: #f1eafe;
-  --teal: #0d9488;
-  --teal-weak: #e6f7f5;
-  --shadow-sm: 0 1px 3px rgba(20, 30, 60, 0.04);
-  --shadow-md: 0 4px 16px rgba(20, 30, 60, 0.06);
-  --shadow-lg: 0 8px 32px rgba(20, 30, 60, 0.08);
+  --surface-sunken: #f8f8f3;
+  --surface-hover: #faf9f5;
+
+  /* 文本 */
+  --ink: #1c1c16;
+  --text-primary: #1c1c16;
+  --text-secondary: #63635a;
+  --text-tertiary: #7a7a6f;
+
+  /* 主操作色：近黑，只用在一个地方，就是"去做这件事" */
+  --accent: #1c1c16;
+  --accent-hover: #000000;
+  --accent-light: #eceae0;
+  --accent-contrast: #ffffff;
+
+  /* 描边 */
+  --border: #e4e2d7;
+  --border-light: #ecebe3;
+  --border-2: #d7d5c8;
+
+  /* 语义色：低饱和，只作为状态的墨水，不抢主色 */
+  --success: #4d7a58;
+  --green: #4d7a58;
+  --green-weak: #eaf1e9;
+  --warning: #a5772f;
+  --orange: #a5772f;
+  --orange-weak: #f7f0e1;
+  --danger: #b1463c;
+  --danger-weak: #f9ece9;
+  --blue: #3f6390;
+  --blue-weak: #e9eff6;
+  --purple: #6b5a9e;
+  --purple-weak: #eeebf6;
+  --teal: #3d7a72;
+  --teal-weak: #e7f1ef;
+
+  /* 阴影：只用来分层，不用来装饰 */
+  --shadow-sm: 0 1px 2px rgba(28, 28, 22, 0.04);
+  --shadow-md: 0 2px 10px -2px rgba(28, 28, 22, 0.08);
+  --shadow-lg: 0 24px 60px -28px rgba(28, 28, 22, 0.28);
+
+  /* 圆角 */
   --radius-sm: 8px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
-  --transition: 0.15s ease;
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --radius-pill: 999px;
+
+  /* 动效 */
+  --transition: 0.16s ease;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
   /* 兼容既有组件使用的变量名 */
-  --bg-body: var(--bg);
-  --bg-sidebar: var(--surface);
-  --bg-bottom: var(--surface);
-  --bg-content: var(--bg);
+  --panel: var(--surface);
   --border-color: var(--border);
   --color-text: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
@@ -85,101 +119,373 @@ body {
   overflow: hidden;
 }
 
-/* 通用确认弹窗适应窄屏和较小视口，长内容滚动后仍可操作底部按钮。 */
-body .n-dialog {
-  max-width: calc(100vw - 32px);
-  max-height: calc(100vh - 32px - var(--safe-area-top) - var(--safe-area-bottom));
-  max-height: calc(100dvh - 32px - var(--safe-area-top) - var(--safe-area-bottom));
-  overflow-y: auto;
-  overflow-wrap: anywhere;
+/* 数字统一等宽，避免计数跳动时抖行 */
+.tnum,
+.stat-value,
+.metric-value {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
 }
 
-body .n-dialog__action {
+::selection {
+  background: #dedbcc;
+  color: var(--ink);
+}
+
+/* 键盘焦点：可见、克制、统一 */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* 细滚动条，和纸面同色系 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d5d3c6 transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #d9d7ca;
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #c3c1b2;
+  background-clip: content-box;
+}
+
+/* =========================================================
+   页面骨架：统一的标题区
+   ========================================================= */
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
   flex-wrap: wrap;
+  padding-bottom: 22px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid var(--border);
 }
 
-/* ===== MusicDock 通用组件样式（全局可复用） ===== */
+.page-head-main {
+  min-width: 0;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin-bottom: 10px;
+}
+
+.eyebrow::before {
+  content: '';
+  width: 16px;
+  height: 1px;
+  background: var(--border-2);
+}
+
+.page-title {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.16;
+  color: var(--text-primary);
+}
+
+.page-sub {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  max-width: 62ch;
+}
+
+.page-head-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding-bottom: 2px;
+    flex: none;
+}
+
+/* 主按钮：近黑实心，全站唯一的重色 */
+.btn-ink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 18px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition), transform var(--transition);
+}
+
+.btn-ink:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.btn-ink:active {
+  transform: translateY(1px);
+}
+
+.btn-ink:disabled {
+  opacity: 0.4;
+  cursor: default;
+  transform: none;
+}
+
+.btn-ink svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* 次级按钮：白底描边 */
+.btn-line {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 16px;
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius-pill);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: border-color var(--transition), background var(--transition), color var(--transition);
+}
+
+.btn-line:hover:not(:disabled) {
+  border-color: var(--text-tertiary);
+  background: var(--surface-hover);
+}
+
+.btn-line:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* 活着/离线指示 */
+.live-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.live-chip .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+}
+
+.live-chip.online {
+  color: var(--green);
+  border-color: #d9e4d5;
+  background: var(--green-weak);
+}
+
+.live-chip.online .dot {
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(77, 122, 88, 0.14);
+}
+
+.live-chip.offline {
+  color: var(--danger);
+  border-color: #ecd7d1;
+  background: var(--danger-weak);
+}
+
+.live-chip.offline .dot {
+  background: var(--danger);
+}
+
+/* =========================================================
+   卡片与分区
+   ========================================================= */
 .md-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
 }
 
-/* 胶囊分类标签 */
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 22px 14px;
+}
+
+.sec-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.sec-title svg {
+  width: 15px;
+  height: 15px;
+  color: var(--text-tertiary);
+}
+
+.sec-meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+}
+
+.link-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 5px 8px;
+  margin-right: -8px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: color var(--transition), background var(--transition);
+}
+
+.link-more:hover {
+  color: var(--text-primary);
+  background: var(--surface-sunken);
+}
+
+/* =========================================================
+   分段控件 / 胶囊：全站统一的"选择"语言
+   ========================================================= */
 .md-tabs {
   display: flex;
-  gap: 10px;
+  gap: 4px;
   flex-wrap: wrap;
+  padding: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-light);
+  width: fit-content;
+  max-width: 100%;
 }
 
 .md-tab {
-  padding: 8px 24px;
-  border-radius: 999px;
-  font-size: 14px;
+  padding: 8px 18px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 500;
   color: var(--text-secondary);
-  background: var(--surface);
-  border: 1px solid var(--border-2);
+  background: transparent;
+  border: 1px solid transparent;
   cursor: pointer;
-  transition: color var(--transition), background var(--transition), border-color var(--transition);
+  transition: color var(--transition), background var(--transition), box-shadow var(--transition);
   font-family: inherit;
   white-space: nowrap;
+  min-height: 36px;
 }
 
 .md-tab:hover {
-  color: var(--accent);
-  border-color: #c4d6fb;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.7);
 }
 
 .md-tab.active {
   background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-  font-weight: 600;
+  color: var(--accent-contrast);
+  font-weight: 500;
+  box-shadow: 0 1px 2px rgba(28, 28, 22, 0.18);
 }
 
-/* 筛选胶囊 */
+/* 筛选胶囊（平台选择等） */
 .md-pills {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: wrap;
   align-items: center;
 }
 
 .md-pill {
-  padding: 9px 20px;
-  border-radius: 999px;
-  font-size: 14px;
-  border: 1px solid var(--border-2);
+  padding: 7px 15px;
+  border-radius: var(--radius-pill);
+  font-size: 12.5px;
+  border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text-secondary);
   cursor: pointer;
   transition: color var(--transition), background var(--transition), border-color var(--transition);
   font-family: inherit;
   white-space: nowrap;
+  min-height: 34px;
 }
 
 .md-pill:hover {
-  color: var(--accent);
-  border-color: #c4d6fb;
+  color: var(--text-primary);
+  border-color: var(--border-2);
 }
 
 .md-pill.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
-  font-weight: 600;
+  color: var(--accent-contrast);
+  font-weight: 500;
 }
 
 /* 关键词胶囊 */
 .md-chip {
   display: inline-flex;
   align-items: center;
-  padding: 8px 18px;
+  padding: 7px 15px;
   background: var(--surface);
-  border: 1px solid var(--border-2);
-  border-radius: 999px;
-  font-size: 13.5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  font-size: 12.5px;
   color: var(--text-secondary);
   cursor: pointer;
   transition: color var(--transition), background var(--transition), border-color var(--transition);
@@ -187,24 +493,38 @@ body .n-dialog__action {
 }
 
 .md-chip:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--accent-light);
+  border-color: var(--border-2);
+  color: var(--text-primary);
+  background: var(--surface-sunken);
 }
 
-/* 状态徽标 */
+/* =========================================================
+   状态徽标
+   ========================================================= */
 .md-badge {
-  font-size: 12.5px;
-  padding: 4px 12px;
-  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
   font-weight: 500;
-  display: inline-block;
   white-space: nowrap;
+  line-height: 1.5;
+}
+
+.md-badge::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.85;
 }
 
 .md-badge.blue {
-  background: var(--accent-light);
-  color: var(--accent);
+  background: var(--blue-weak);
+  color: var(--blue);
 }
 
 .md-badge.green {
@@ -213,7 +533,7 @@ body .n-dialog__action {
 }
 
 .md-badge.gray {
-  background: #f0f1f3;
+  background: var(--surface-sunken);
   color: var(--text-tertiary);
 }
 
@@ -230,53 +550,67 @@ body .n-dialog__action {
 /* 音质标签 */
 .md-tag {
   display: inline-block;
-  font-size: 12px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
   color: var(--text-secondary);
-  background: #fff;
-  border: 1px solid var(--border-2);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-light);
   border-radius: 6px;
-  padding: 3px 10px;
+  padding: 3px 8px;
   white-space: nowrap;
-  line-height: 1.5;
+  line-height: 1.55;
+  text-transform: uppercase;
 }
 
 .md-tag.gold {
-  color: #8a5a00;
-  border-color: #e9cd7c;
-  background: #fff8e3;
+  color: #86601e;
+  border-color: #e6d8b4;
+  background: #fbf5e4;
 }
 
 .md-tag.gray {
   color: var(--text-tertiary);
-  background: #f4f5f7;
+  background: var(--surface-sunken);
   border-color: transparent;
 }
 
-/* 顶部搜索栏 */
+/* =========================================================
+   顶部搜索栏
+   ========================================================= */
 .md-search {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 8px 16px;
+  border-radius: var(--radius-pill);
+  padding: 7px 8px 7px 20px;
   box-shadow: var(--shadow-sm);
   min-width: 0;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.md-search:focus-within {
+  border-color: var(--border-2);
+  box-shadow: 0 0 0 4px rgba(28, 28, 22, 0.05);
 }
 
 .md-kb-chip {
-  background: var(--accent-light);
-  color: var(--accent);
-  font-size: 13px;
-  font-weight: 700;
-  padding: 4px 12px;
-  border-radius: 7px;
-  letter-spacing: 1px;
+  background: var(--surface-sunken);
+  color: var(--text-tertiary);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-light);
+  letter-spacing: 0.06em;
   flex: none;
 }
 
-/* 卡片内表格 */
+/* =========================================================
+   表格
+   ========================================================= */
 .md-table-wrap {
   overflow-x: auto;
 }
@@ -288,19 +622,22 @@ body .n-dialog__action {
 }
 
 .md-table th {
-  font-size: 12.5px;
+  font-family: var(--mono);
+  font-size: 10.5px;
   font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--text-tertiary);
   text-align: left;
-  padding: 12px 18px;
+  padding: 10px 18px;
   border-bottom: 1px solid var(--border);
-  background: #fafbfc;
+  background: transparent;
 }
 
 .md-table td {
-  padding: 16px 18px;
-  border-bottom: 1px solid var(--border);
-  font-size: 14px;
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--border-light);
+  font-size: 13.5px;
   vertical-align: middle;
 }
 
@@ -309,44 +646,68 @@ body .n-dialog__action {
 }
 
 .md-table tbody tr:hover {
-  background: #fafbfd;
+  background: var(--surface-hover);
 }
 
-/* 红色下载按钮 */
+/* 下载按钮：近黑实心胶囊 */
 .md-btn-dl {
-  height: 38px;
-  padding: 0 26px;
-  background: var(--danger);
-  color: #fff;
-  border: none;
-  border-radius: 9px;
-  font-size: 14px;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 16px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-pill);
+  font-size: 12.5px;
+  font-weight: 500;
   font-family: inherit;
   flex: none;
   cursor: pointer;
-  transition: background var(--transition);
+  transition: background var(--transition), border-color var(--transition);
 }
 
 .md-btn-dl:hover {
-  background: #e63a3c;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
-/* ===== MusicDock 设置卡片与行 ===== */
+.md-btn-dl:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* =========================================================
+   设置页卡片与行
+   ========================================================= */
 .set-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
-  padding: 22px 28px;
-  margin-bottom: 16px;
+  padding: 8px 26px 18px;
+  margin-bottom: 14px;
 }
 
 .set-card-title {
-  font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14.5px;
   font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--text-primary);
-  margin-bottom: 6px;
+  padding: 16px 0 12px;
+}
+
+.set-card-title::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.35;
 }
 
 .set-row {
@@ -354,7 +715,7 @@ body .n-dialog__action {
   align-items: flex-start;
   gap: 20px;
   padding: 15px 0;
-  border-bottom: 1px dashed var(--border-light);
+  border-bottom: 1px solid var(--border-light);
 }
 
 .set-row:last-child {
@@ -364,7 +725,7 @@ body .n-dialog__action {
 .set-label {
   width: 200px;
   flex: none;
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 500;
   color: var(--text-primary);
   padding-top: 8px;
@@ -385,7 +746,7 @@ body .n-dialog__action {
 }
 
 .set-hint {
-  font-size: 12.5px;
+  font-size: 12px;
   color: var(--text-tertiary);
   margin-top: 8px;
   line-height: 1.7;
@@ -402,26 +763,26 @@ body .n-dialog__action {
   flex: 1;
   min-width: 0;
   height: 38px;
-  padding: 0 12px;
-  border: 1px solid var(--border-2);
-  border-radius: 8px;
-  font-size: 13.5px;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
   font-family: inherit;
   color: var(--text-primary);
-  background: #fafbfc;
+  background: var(--surface-sunken);
   outline: none;
   transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
 }
 
 .set-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(43, 107, 243, 0.12);
-  background: #fff;
+  border-color: var(--border-2);
+  box-shadow: 0 0 0 4px rgba(28, 28, 22, 0.05);
+  background: var(--surface);
 }
 
 .set-input.mono {
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
 .set-input[readonly] {
@@ -437,18 +798,18 @@ body .n-dialog__action {
   min-width: 150px;
   height: 36px;
   padding: 0 12px;
-  border: 1px solid var(--border-2);
-  border-radius: 8px;
-  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 13px;
   font-family: inherit;
   cursor: pointer;
   transition: border-color var(--transition), box-shadow var(--transition);
 }
 
 .set-select:hover:not(:disabled) {
-  border-color: #c4d6fb;
+  border-color: var(--border-2);
 }
 
 .set-select:disabled {
@@ -461,19 +822,19 @@ body .n-dialog__action {
   font-size: 12px;
 }
 
-/* 设置卡片内的描边按钮 */
+/* 描边按钮 */
 .btn-ghost {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   height: 34px;
-  padding: 0 16px;
-  border: 1px solid var(--border-2);
-  border-radius: 8px;
-  background: #fff;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
   color: var(--text-primary);
-  font-size: 13.5px;
+  font-size: 13px;
   font-family: inherit;
   cursor: pointer;
   flex: none;
@@ -486,7 +847,8 @@ body .n-dialog__action {
 }
 
 .btn-ghost:hover:not(:disabled) {
-  border-color: #c9cdd4;
+  border-color: var(--border-2);
+  background: var(--surface-sunken);
 }
 
 .btn-ghost:disabled {
@@ -496,11 +858,85 @@ body .n-dialog__action {
 
 .btn-ghost.danger {
   color: var(--danger);
-  border-color: rgba(255, 77, 79, 0.4);
+  border-color: #e8d2cd;
 }
 
 .btn-ghost.danger:hover:not(:disabled) {
   background: var(--danger-weak);
+}
+
+/* =========================================================
+   空状态 / 分割
+   ========================================================= */
+.empty-cell {
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  padding: 44px 18px;
+}
+
+/* 入场编排：一次排好的序列胜过零散微交互 */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise {
+  animation: rise 0.52s var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise {
+    animation: none;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* =========================================================
+   通用确认弹窗适应窄屏
+   ========================================================= */
+body .n-dialog {
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px - var(--safe-area-top) - var(--safe-area-bottom));
+  max-height: calc(100dvh - 32px - var(--safe-area-top) - var(--safe-area-bottom));
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+
+body .n-dialog__action {
+  flex-wrap: wrap;
+}
+
+/* =========================================================
+   Naive UI 细节对齐纸面风格
+   ========================================================= */
+body .n-card {
+  border-radius: var(--radius-lg);
+}
+
+body .n-data-table .n-data-table-th {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+body .n-pagination .n-pagination-item {
+  border-radius: var(--radius-pill);
 }
 
 /* ---------- Android 安全区适配 ---------- */

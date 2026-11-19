@@ -1,7 +1,15 @@
 <template>
     <div class="search-view">
+        <header class="page-head rise" style="--i: 0">
+            <div class="page-head-main">
+                <div class="eyebrow">Search · 检索</div>
+                <h1 class="page-title">搜索音乐</h1>
+                <p class="page-sub">四个平台一次检索，勾选后可以整批加入下载队列。</p>
+            </div>
+        </header>
+
         <!-- 平台绑定 + 搜索类型切换 -->
-        <div class="search-header">
+        <div class="search-header rise" style="--i: 1">
             <SearchBar :keyword="keyword" @update:keyword="onKeywordInput" v-model:platform="currentPlatform"
                 :platform-options="PLATFORMS" :placeholder="searchPlaceholder" button-text="搜索"
                 @search="handleSearch" />
@@ -392,12 +400,12 @@ function onBatchDownload() {
 .search-header {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    margin-bottom: 16px;
+    gap: 14px;
+    margin-bottom: 22px;
 }
 
 .type-switch {
-    gap: 8px;
+    margin-top: 2px;
 }
 
 /* 搜索栏和类型切换的间距由 search-header 统一控制 */

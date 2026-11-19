@@ -1,18 +1,18 @@
 import { h, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import { useDialog, useNotification, NButton } from 'naive-ui'
 import type { Quality, SongInfo, QualityItem, DuplicateAction } from '../types'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useTaskStore } from '../stores/taskStore'
+import { useLogStore } from '../stores/logStore'
 import QualitySelector from '../components/search/QualitySelector.vue'
 
 /** 只处理用户交互：音质选择、重名确认及通知。品质降级、路径与重试由 Rust 决定。 */
 export function useDownloadActions() {
     const dialog = useDialog()
-    const router = useRouter()
     const notification = useNotification()
     const settingsStore = useSettingsStore()
     const taskStore = useTaskStore()
+    const logStore = useLogStore()
 
     /** 只收集用户选择的品质标签，不在页面上做降级或文件名推断。 */
     function askQuality(qualities: QualityItem[]): Promise<string> {
@@ -109,14 +109,34 @@ export function useDownloadActions() {
             // 设置有防抖写盘；先刷入存储，保证 Rust 读取的是用户当前选择。
             await settingsStore.flushSettings()
             const outcome = await submitSong(song, quality)
-            if (outcome === 'error') {
-                notification.warning({ title: '下载提示', description: `歌曲“${song.title}”所选音质不可用，已标记为错误` })
+            if (outcome === 'created') {
+                logStore.push({
+                    level: 'info',
+                    scope: 'download',
+                    title: `已加入队列 · ${song.title}`,
+                    detail: `${song.artist || '未知歌手'} · ${quality || '自动音质'}`,
+                    platform: song.platform,
+                })
             }
-            if (outcome !== 'cancelled' && settingsStore.settings.jumpToTask) {
-                router.push('/task')
+            if (outcome === 'error') {
+                logStore.push({
+                    level: 'warn',
+                    scope: 'download',
+                    title: `音质不可用 · ${song.title}`,
+                    detail: `所选音质（${quality || '自动'}）没有可用资源，任务已标记为错误`,
+                    platform: song.platform,
+                })
+                notification.warning({ title: '下载提示', description: `歌曲“${song.title}”所选音质不可用，已标记为错误` })
             }
         } catch (error: any) {
             console.error('下载失败:', error)
+            logStore.push({
+                level: 'error',
+                scope: 'download',
+                title: `下载请求失败 · ${song.title}`,
+                detail: error?.message || String(error),
+                platform: song.platform,
+            })
             notification.error({ title: '下载失败', description: error?.message || String(error) })
         }
     }
@@ -150,14 +170,23 @@ export function useDownloadActions() {
                     errors++
                 }
             }
+            logStore.push({
+                level: errors > 0 ? 'warn' : 'info',
+                scope: 'download',
+                title: `批量加入队列 · ${songs.length - errors} 首`,
+                detail: `${quality || '自动音质'}${errors > 0 ? `，${errors} 首无可用音质` : ''}`,
+            })
             if (errors > 0) {
                 notification.warning({ title: '批量下载', description: `${errors} 首歌曲无可用音质，已标记为错误` })
             }
-            if (settingsStore.settings.jumpToTask) {
-                router.push('/task')
-            }
         } catch (error: any) {
             console.error('批量下载失败:', error)
+            logStore.push({
+                level: 'error',
+                scope: 'download',
+                title: '批量下载失败',
+                detail: error?.message || String(error),
+            })
             notification.error({ title: '批量下载失败', description: error?.message || String(error) })
         }
     }
@@ -167,9 +196,21 @@ export function useDownloadActions() {
             await settingsStore.flushSettings()
             // 错误重试由 Rust 决定计数、续传和降级；中断任务使用独立的 resume 命令。
             if (!(await taskStore.retryTask(taskId))) {
+                logStore.push({
+                    level: 'warn',
+                    scope: 'download',
+                    title: `重试未入队 · ${taskStore.tasks.find((task) => task.id === taskId)?.songTitle ?? taskId}`,
+                    detail: '当前任务状态无法重新入队，请查看任务列表',
+                })
                 notification.warning({ title: '重试失败', description: '任务未重新入队，请查看任务状态' })
             }
         } catch (error: any) {
+            logStore.push({
+                level: 'error',
+                scope: 'download',
+                title: '重试失败',
+                detail: error?.message || String(error),
+            })
             notification.error({ title: '重试失败', description: error?.message || String(error) })
         }
     }

@@ -1,11 +1,12 @@
 <template>
     <div class="account-view" :class="{ 'is-narrow': isNarrow }">
-        <div class="head-row">
-            <div>
+        <header class="page-head rise" style="--i: 0">
+            <div class="page-head-main">
+                <div class="eyebrow">Account · 账号</div>
                 <div class="page-title">账号设置</div>
                 <div class="page-sub">统一管理 QQ 音乐、酷狗音乐与网易云音乐的登录状态；登录后会提高对应平台的下载音质与可用范围</div>
             </div>
-        </div>
+        </header>
 
         <!-- 登录状态总览：换源会跨平台，先让用户看清哪个平台还没登录 -->
         <div class="status-bar">
@@ -18,7 +19,7 @@
         </div>
 
         <!-- 三个平台的登录卡片；登录组件本身沿用设置页的原实现，保持版式一致 -->
-        <div class="set-card account-section">
+        <div class="set-card account-section rise" style="--i: 2">
             <div class="set-card-title">QQ 音乐</div>
             <div class="set-card-sub">登录后可下载付费音质，并读取账号下的收藏歌单；未登录时部分歌曲会拿不到下载链接</div>
             <n-form :label-placement="isNarrow ? 'top' : 'left'">
@@ -26,7 +27,7 @@
             </n-form>
         </div>
 
-        <div class="set-card account-section">
+        <div class="set-card account-section rise" style="--i: 3">
             <div class="set-card-title">酷狗音乐</div>
             <div class="set-card-sub">登录后可下载高音质资源，并读取账号下的歌单</div>
             <n-form :label-placement="isNarrow ? 'top' : 'left'">
@@ -34,7 +35,7 @@
             </n-form>
         </div>
 
-        <div class="set-card account-section">
+        <div class="set-card account-section rise" style="--i: 4">
             <div class="set-card-title">网易云音乐</div>
             <div class="set-card-sub">登录后可下载高音质资源，并读取账号下的歌单</div>
             <n-form :label-placement="isNarrow ? 'top' : 'left'">
@@ -125,32 +126,11 @@ onActivated(refreshStatus)
 <style scoped>
 .account-view {
     width: 100%;
-    max-width: none;
+    max-width: 980px;
     min-width: 0;
     display: flex;
     flex-direction: column;
     min-height: 100%;
-}
-
-.head-row {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-    flex-wrap: wrap;
-    margin-bottom: 20px;
-}
-
-.page-title {
-    font-size: 22px;
-    font-weight: 700;
-    color: var(--text-primary);
-}
-
-.page-sub {
-    font-size: 13px;
-    color: var(--text-secondary);
-    margin-top: 4px;
 }
 
 .status-bar {
@@ -228,7 +208,7 @@ onActivated(refreshStatus)
 .account-view :deep(.n-form-item) {
     padding: 14px 0;
     margin-bottom: 0;
-    border-bottom: 1px dashed var(--border-light);
+    border-bottom: 1px solid var(--border-light);
 }
 
 .account-view :deep(.n-form-item:last-child) {
@@ -245,6 +225,106 @@ onActivated(refreshStatus)
 .account-view :deep(.n-form-item-blank),
 .account-view :deep(.n-input-group) {
     min-width: 0;
+}
+
+/* ---------- 登录控件与整站语言对齐 ---------- */
+
+/* 扫码/手动登录：从下划线标签改成灰槽分段控件 */
+.account-view :deep(.n-tabs-nav) {
+    max-width: fit-content;
+    margin-bottom: 10px;
+}
+
+.account-view :deep(.n-tabs-nav-scroll) {
+    display: inline-flex;
+}
+
+.account-view :deep(.n-tabs-nav--line-type .n-tabs-nav-scroll-content) {
+    display: inline-flex;
+    gap: 2px;
+    padding: 4px;
+    border-bottom: none !important;
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-light);
+    border-radius: 999px;
+}
+
+.account-view :deep(.n-tabs-nav--line-type .n-tabs-nav-scroll-content::before) {
+    display: none;
+}
+
+.account-view :deep(.n-tabs-tab) {
+    padding: 6px 16px !important;
+    margin: 0 !important;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 450;
+    color: var(--text-secondary);
+    transition: color var(--transition), background var(--transition);
+}
+
+.account-view :deep(.n-tabs-tab:hover) {
+    color: var(--text-primary) !important;
+}
+
+.account-view :deep(.n-tabs-tab.n-tabs-tab--active) {
+    background: var(--accent);
+    color: var(--accent-contrast) !important;
+    font-weight: 500;
+}
+
+.account-view :deep(.n-tabs-bar) {
+    display: none;
+}
+
+.account-view :deep(.n-tabs-pane-wrapper) {
+    padding-top: 4px;
+}
+
+/* 二维码：给一块有边界的扫码区，避免未出图时留下大片空白 */
+.account-view :deep(.qr-container) {
+    min-height: 190px;
+    justify-content: center;
+    padding: 18px;
+    border: 1px dashed var(--border-2);
+    border-radius: var(--radius-md);
+    background: var(--surface-sunken);
+}
+
+.account-view :deep(.qr-tips) {
+    font-size: 12px;
+    color: var(--text-tertiary);
+}
+
+.account-view :deep(.qr-container .n-button) {
+    border-radius: 999px;
+    height: 32px;
+    font-size: 12.5px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-secondary);
+}
+
+/* 提交类按钮：不再整行铺满，收成胶囊 */
+.account-view :deep(.n-form .n-button.n-button--primary-type) {
+    border-radius: 999px;
+    max-width: 240px;
+    height: 38px;
+    font-size: 13px;
+}
+
+/* 退出登录：从红色实心改为安静描边 */
+.account-view :deep(.logged-in .n-button.n-button--error-type) {
+    border-radius: 999px;
+    background: transparent !important;
+    color: var(--danger) !important;
+    border: 1px solid #e8d2cd !important;
+    height: 30px;
+    font-size: 12.5px;
+}
+
+.account-view :deep(.logged-in .n-button.n-button--error-type:hover) {
+    background: var(--danger-weak) !important;
 }
 
 /* 多行输入（如网易云手动登录的 Cookie）在收缩型 flex 容器中会塌陷成一条细线，给出最小宽度 */

@@ -1,5 +1,13 @@
 <template>
     <div class="settings-view" :class="{ 'is-narrow': isNarrow }">
+        <header class="page-head rise" style="--i: 0">
+            <div class="page-head-main">
+                <div class="eyebrow">Settings · 设置</div>
+                <div class="page-title">设置</div>
+                <div class="page-sub">音质、下载目录、命名规则与通知。改动会立即生效并写入本地配置。</div>
+            </div>
+        </header>
+
         <n-alert v-if="settingsStore.saveError" type="error" class="settings-alert">
             设置保存失败：{{ settingsStore.saveError }}
         </n-alert>
@@ -14,7 +22,7 @@
         <!-- 平台账号登录已移至左侧「账号设置」页面统一管理。 -->
 
         <!-- 安全设置：仅 Web 版支持修改访问密码（桌面端不经过 HTTP 认证） -->
-        <div v-if="!native" class="set-card">
+        <div v-if="!native" class="set-card rise" style="--i: 1">
             <div class="set-card-title">安全设置</div>
             <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 200">
                 <SecuritySetting />
@@ -22,7 +30,7 @@
         </div>
 
         <!-- MCP 接入：仅 Web 版提供，展示带密钥的接入链接 -->
-        <div v-if="!native" class="set-card">
+        <div v-if="!native" class="set-card rise" style="--i: 2">
             <div class="set-card-title">MCP 接入</div>
             <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 200">
                 <McpSetting />
@@ -30,7 +38,7 @@
         </div>
 
         <!-- 快捷指令：给 iOS 捷径等脚本直接调用，解析后自动建任务 -->
-        <div v-if="!native" class="set-card">
+        <div v-if="!native" class="set-card rise" style="--i: 3">
             <div class="set-card-title">快捷指令</div>
             <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 200">
                 <ShortcutSetting />
@@ -38,14 +46,14 @@
         </div>
 
         <!-- 通知设置：飞书机器人推送（仅 Web 版） -->
-        <div v-if="!native" class="set-card">
+        <div v-if="!native" class="set-card rise" style="--i: 4">
             <div class="set-card-title">通知设置</div>
             <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 200">
                 <FeishuNotifySetting />
             </n-form>
         </div>
 
-        <div class="set-card">
+        <div class="set-card rise" style="--i: 5">
             <div class="set-card-title">基本设置</div>
             <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 200">
                 <QualitySetting />
@@ -54,7 +62,7 @@
             </n-form>
         </div>
 
-        <div class="set-card">
+        <div class="set-card rise" style="--i: 6">
             <div class="set-card-title">下载设置</div>
             <n-form :label-placement="isNarrow ? 'top' : 'left'" :label-width="isNarrow ? undefined : 200">
                 <DirectorySetting />
@@ -64,7 +72,6 @@
                 <WriteMetadataSetting />
                 <DownloadLrcSetting />
                 <ConcurrencySetting />
-                <JumpToTaskSetting />
                 <DuplicateStrategySetting />
                 <NotifySetting v-if="native" />
             </n-form>
@@ -91,7 +98,6 @@ import NamingTemplate from '../components/settings/NamingTemplate.vue'
 import ArtistSeparator from '../components/settings/ArtistSeparator.vue'
 import NamingPreview from '../components/settings/NamingPreview.vue'
 import ConcurrencySetting from '../components/settings/ConcurrencySetting.vue'
-import JumpToTaskSetting from '../components/settings/JumpToTaskSetting.vue'
 import ClearHistoryButton from '../components/settings/ClearHistoryButton.vue'
 import WriteMetadataSetting from '../components/settings/WriteMetadataSetting.vue'
 import DownloadLrcSetting from '../components/settings/DownloadLrcSetting.vue'
@@ -120,7 +126,6 @@ const settingLabels: Partial<Record<keyof Settings, string>> = {
     downloadDir: '下载目录',
     namingTemplate: '文件命名规则',
     maxConcurrent: '并发下载数',
-    jumpToTask: '添加后跳转任务',
     artistSeparator: '歌手连接符',
     safFolderUri: 'Android 文件夹',
     safFolderName: 'Android 文件夹名称',
@@ -142,7 +147,7 @@ function goAbout() {
 <style scoped>
 .settings-view {
     width: 100%;
-    max-width: none;
+    max-width: 980px;
     min-width: 0;
     /* 让设置页占满父容器高度，使用 flex 列布局 */
     display: flex;
@@ -167,11 +172,11 @@ function goAbout() {
     max-width: none;
 }
 
-/* 将 Naive 表单行渲染为 MusicDock 的 set-row 版式 */
+/* 将 Naive 表单行渲染为设置页的统一行版式 */
 .settings-view :deep(.n-form-item) {
     padding: 14px 0;
     margin-bottom: 0;
-    border-bottom: 1px dashed var(--border-light);
+    border-bottom: 1px solid var(--border-light);
 }
 
 .settings-view :deep(.n-form-item:last-child) {
@@ -204,7 +209,7 @@ function goAbout() {
     align-items: flex-start;
     gap: 20px;
     padding: 15px 0;
-    border-bottom: 1px dashed var(--border-light);
+    border-bottom: 1px solid var(--border-light);
 }
 
 .settings-view :deep(.setting-row:last-child) {

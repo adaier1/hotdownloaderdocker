@@ -99,9 +99,21 @@ export async function authorizeWeb(token?: string): Promise<boolean> {
 
     const saved = sessionStorage.getItem(CREDENTIAL_KEY) ?? ''
     const legacyToken = sessionStorage.getItem(LEGACY_TOKEN_KEY) ?? ''
-    const candidate = webSession.mode === 'none' ? ''
-        : webSession.mode === 'token' ? `Bearer ${token?.trim() ?? (saved.startsWith('Bearer ') ? saved.slice(7) : legacyToken)}`
-            : saved.startsWith('Basic ') ? saved : ''
+    let candidate = ''
+    if (webSession.mode === 'token') {
+        const tokenValue = token?.trim() ?? (saved.startsWith('Bearer ') ? saved.slice(7) : legacyToken)
+        candidate = tokenValue ? `Bearer ${tokenValue}` : ''
+    } else if (webSession.mode === 'password') {
+        candidate = saved.startsWith('Basic ') ? saved : ''
+    }
+
+    // 需要认证但本地没有可用凭据时，直接展示表单等用户输入。
+    // 这里若仍去探测一次，第一次打开页面就会看到"凭据无效"，让人以为密码错了。
+    if (webSession.mode !== 'none' && !candidate) {
+        webSession.checking = false
+        return false
+    }
+
     return checkAccess(candidate)
 }
 

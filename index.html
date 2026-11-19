@@ -5,13 +5,19 @@
   <meta charset="UTF-8" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <!-- 展示字：仅拉丁子集，中文回落到系统黑体；加载失败时静默回退，不阻塞渲染 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" media="print" onload="this.media='all'"
+    href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&display=swap" />
   <script>
     // 尽早为 Android 平台添加类名，避免安全区样式闪烁
     if (navigator.userAgent.toLowerCase().includes('android')) {
       document.documentElement.classList.add('android')
     }
   </script>
-  <title>hotdownloader</title>
+  <meta name="theme-color" content="#f2f2ed" />
+  <title>HotDownloader · 音乐下载工作台</title>
 </head>
 
 <body>

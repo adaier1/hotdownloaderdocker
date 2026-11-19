@@ -107,30 +107,36 @@ watch(() => props.song.id, () => {
 .song-item {
     display: flex;
     align-items: center;
-    gap: 18px;
+    gap: 16px;
     min-width: 0;
-    padding: 18px 22px;
+    padding: 13px 16px 13px 18px;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    box-shadow: var(--shadow-sm);
-    transition: border-color var(--transition);
+    box-shadow: none;
+    transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
+}
+
+.song-item:hover {
+    border-color: var(--border-2);
+    background: #fffefb;
 }
 
 .song-item.is-selected {
     border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
 }
 
 .cover {
-    width: 54px;
-    height: 54px;
+    width: 46px;
+    height: 46px;
     flex-shrink: 0;
 }
 
 .cover-img {
-    width: 54px;
-    height: 54px;
-    border-radius: 9px;
+    width: 46px;
+    height: 46px;
+    border-radius: 10px;
     object-fit: cover;
     display: block;
 }
@@ -138,14 +144,15 @@ watch(() => props.song.id, () => {
 .cover-fallback {
     display: grid;
     place-items: center;
-    color: #fff;
-    background: linear-gradient(135deg, #4f7cff, #8b5cf6);
+    color: var(--text-tertiary);
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-light);
 }
 
 .cover-fallback :deep(svg) {
-    width: 24px;
-    height: 24px;
-    opacity: 0.92;
+    width: 20px;
+    height: 20px;
+    opacity: 0.9;
 }
 
 .info {
@@ -155,8 +162,8 @@ watch(() => props.song.id, () => {
 }
 
 .title {
-    font-size: 15px;
-    font-weight: 600;
+    font-size: 13.5px;
+    font-weight: 500;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -165,8 +172,8 @@ watch(() => props.song.id, () => {
 }
 
 .artist {
-    margin-top: 4px;
-    font-size: 13px;
+    margin-top: 3px;
+    font-size: 12px;
     color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
@@ -174,8 +181,8 @@ watch(() => props.song.id, () => {
 }
 
 .album {
-    margin-top: 2px;
-    font-size: 12.5px;
+    margin-top: 1px;
+    font-size: 11.5px;
     color: var(--text-tertiary);
     white-space: nowrap;
     overflow: hidden;

@@ -22,12 +22,11 @@ const NATIVE_KEYS: SettingKey[] = [
     ...SHARED_KEYS,
     'defaultQuality',
     'downloadDir',
-    'jumpToTask',
     'safFolderUri',
     'safFolderName',
     'notifyOnComplete',
 ]
-const WEB_LOCAL_KEYS: SettingKey[] = ['defaultQuality', 'jumpToTask']
+const WEB_LOCAL_KEYS: SettingKey[] = ['defaultQuality']
 const WEB_LOCAL_PREFIX = 'hotdownloader-local-setting-'
 
 /** 数组必须独立克隆，拖拽排序不能改写全局默认顺序。 */

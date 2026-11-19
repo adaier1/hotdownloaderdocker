@@ -1,5 +1,24 @@
 <template>
     <div class="task-view">
+        <header class="page-head rise" style="--i: 0">
+            <div class="page-head-main">
+                <div class="eyebrow">Queue · 队列</div>
+                <h1 class="page-title">下载任务</h1>
+                <p class="page-sub">
+                    共 {{ tabCounts.total }} 个任务 · {{ activeTaskCount }} 个进行中 · 已完成 {{ tabCounts.completed }} 个
+                </p>
+            </div>
+            <div class="page-head-actions">
+                <button class="btn-ink" type="button" @click="goSearch">
+                    新建下载
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M12 5v14M5 12h14" />
+                    </svg>
+                </button>
+            </div>
+        </header>
+
         <TaskTabs v-model:activeTab="activeTab" :counts="tabCounts" />
 
         <!-- 批量操作栏：按当前标签页显示可用的一键操作 -->
@@ -16,14 +35,14 @@
             </span>
 
             <!-- 清除所有已下载（已完成）的任务记录：仅移除记录，不影响磁盘文件 -->
-            <n-button v-if="canClearCompleted" size="small" type="warning" :loading="clearing" :disabled="clearing"
-                @click="confirmClearCompleted">
+            <n-button v-if="canClearCompleted" size="small" quaternary class="tool-soft" :loading="clearing"
+                :disabled="clearing" @click="confirmClearCompleted">
                 清除所有已下载的任务（{{ tabCounts.completed }}）
             </n-button>
 
             <!-- 清除所有历史任务（含进行中的任务，会被取消） -->
-            <n-button v-if="canClearAll" size="small" type="error" :loading="clearing" :disabled="clearing"
-                @click="confirmClearAll">
+            <n-button v-if="canClearAll" size="small" quaternary class="tool-soft is-danger" :loading="clearing"
+                :disabled="clearing" @click="confirmClearAll">
                 清除所有历史任务（{{ tabCounts.total }}）
             </n-button>
         </div>
@@ -45,6 +64,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { openFileLocation } from '../api/fileApi'
 import { NPagination, NButton, useDialog, useNotification } from 'naive-ui'
 import { useTaskStore } from '../stores/taskStore'
@@ -55,6 +75,7 @@ import TaskTable from '../components/task/TaskTable.vue'
 import TaskBatchActions from '../components/task/TaskBatchActions.vue'
 import type { TaskAction, TaskActionExtra } from '../components/task/TaskRowActions'
 
+const router = useRouter()
 const taskStore = useTaskStore()
 const settingsStore = useSettingsStore()
 const { retryTask } = useDownloadActions()
@@ -95,10 +116,13 @@ const tabCounts = computed(() => {
 
 const filteredTasks = computed(() => {
     const tab = activeTab.value
-    return taskStore.tasks.filter((task) => {
-        if (tab === 'all') return true
-        return task.status === tab
-    })
+    // 后端快照按创建顺序返回；列表统一按最新在前，刚加入的任务永远在第一页顶部。
+    return [...taskStore.tasks]
+        .sort((a, b) => b.addedAt - a.addedAt)
+        .filter((task) => {
+            if (tab === 'all') return true
+            return task.status === tab
+        })
 })
 
 const pagedTasks = computed(() => {
@@ -138,6 +162,10 @@ watch(
         if (page.value > maxPage) page.value = maxPage
     }
 )
+
+function goSearch() {
+    void router.push('/search')
+}
 
 async function handleAction(action: TaskAction, taskId: string, extra?: TaskActionExtra) {
     try {
@@ -335,8 +363,8 @@ async function performClearAll() {
     display: flex;
     align-items: center;
     gap: 8px 12px;
-    padding: 14px 16px;
-    margin-bottom: 16px;
+    padding: 12px 16px;
+    margin-bottom: 14px;
     flex-wrap: wrap;
     background: var(--surface);
     border: 1px solid var(--border);
@@ -344,33 +372,162 @@ async function performClearAll() {
     box-shadow: var(--shadow-sm);
 }
 
-/* 任务表格放入卡片，隐藏 Naive 表格自带外边框，匹配 MusicDock 版式 */
+/* 任务表格放入卡片，隐藏 Naive 表格自带外边框 */
 .table-card {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     box-shadow: var(--shadow-sm);
     overflow: hidden;
 }
 
 .table-card :deep(.n-data-table) {
     --n-border-color: transparent;
+    --n-th-color: transparent;
+    --n-th-text-color: var(--text-tertiary);
+    --n-td-color: transparent;
+    --n-td-color-hover: var(--surface-hover);
+    background: transparent;
 }
 
 .table-card :deep(.n-data-table .n-data-table-th) {
-    background-color: #fafbfc;
-    color: var(--text-tertiary);
+    background-color: transparent;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
     font-weight: 500;
+    padding-top: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
 }
 
 .table-card :deep(.n-data-table .n-data-table-td) {
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border-light);
+    font-size: 13.5px;
+}
+
+.table-card :deep(.n-data-table-tr:last-child .n-data-table-td) {
+    border-bottom: none;
+}
+
+/* 歌名/歌手：一主一次，避免行内信息平铺 */
+.table-card :deep(.song-title) {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.table-card :deep(.song-separator),
+.table-card :deep(.song-artist) {
+    color: var(--text-tertiary);
+}
+
+.table-card :deep(.task-speed) {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+    margin-top: 4px;
+}
+
+/* 细进度条 + 等宽百分比 */
+.table-card :deep(.progress-wrap) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    max-width: 190px;
+}
+
+.table-card :deep(.progress-wrap .n-progress) {
+    flex: 1;
+    min-width: 60px;
+}
+
+.table-card :deep(.progress-wrap .n-progress-rail) {
+    background: var(--border-light);
+}
+
+.table-card :deep(.progress-wrap .n-progress-graph-line-fill) {
+    background: var(--accent);
+}
+
+.table-card :deep(.progress-text) {
+    flex: none;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
 }
 
 .task-toolbar-hint {
     font-size: 12px;
     color: var(--color-text-secondary);
     overflow-wrap: anywhere;
+}
+
+/* 批量操作按钮：把 Naive 的高饱和实心按钮压回纸面 */
+.task-toolbar :deep(.tool-soft) {
+    border: 1px solid var(--border) !important;
+    border-radius: 999px !important;
+    color: var(--text-secondary) !important;
+    background: transparent !important;
+    font-size: 12px !important;
+}
+
+.task-toolbar :deep(.tool-soft:hover) {
+    background: var(--surface-sunken) !important;
+    color: var(--text-primary) !important;
+}
+
+.task-toolbar :deep(.tool-soft.is-danger) {
+    color: var(--danger) !important;
+    border-color: #e8d2cd !important;
+    background: var(--danger-weak) !important;
+}
+
+.task-toolbar :deep(.tool-soft.is-danger:hover) {
+    background: var(--danger-weak) !important;
+    color: var(--danger) !important;
+}
+
+.task-toolbar :deep(.n-button) {
+    border-radius: 999px !important;
+}
+
+/* 行内操作：默认安静，只有"恢复/重试"保留近黑主操作 */
+.table-card :deep(.n-button) {
+    --n-height: 26px;
+    --n-padding: 0 11px;
+    --n-font-size: 12px;
+    font-weight: 500;
+    border-radius: 999px !important;
+}
+
+.table-card :deep(.n-button.n-button--default-type) {
+    --n-border: 1px solid var(--border) !important;
+    --n-border-hover: 1px solid var(--border-2) !important;
+    --n-border-pressed: 1px solid var(--border-2) !important;
+    --n-text-color: var(--text-secondary) !important;
+    --n-text-color-hover: var(--text-primary) !important;
+    --n-color: transparent !important;
+    --n-color-hover: var(--surface-sunken) !important;
+}
+
+.table-card :deep(.n-button.n-button--warning-type) {
+    --n-color: transparent !important;
+    --n-color-hover: var(--orange-weak) !important;
+    --n-text-color: var(--orange) !important;
+    --n-text-color-hover: var(--orange) !important;
+    --n-border: 1px solid #e6d8b4 !important;
+    --n-border-hover: 1px solid #e6d8b4 !important;
+}
+
+.table-card :deep(.n-button.n-button--error-type) {
+    --n-color: transparent !important;
+    --n-color-hover: var(--danger-weak) !important;
+    --n-text-color: var(--danger) !important;
+    --n-text-color-hover: var(--danger) !important;
+    --n-border: 1px solid #e8d2cd !important;
+    --n-border-hover: 1px solid #e8d2cd !important;
 }
 
 .task-toolbar-confirm {

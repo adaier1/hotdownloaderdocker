@@ -1,9 +1,16 @@
 <template>
     <div class="parse-view">
-        <section class="parse-card">
+        <header class="page-head rise" style="--i: 0">
+            <div class="page-head-main">
+                <div class="eyebrow">Parse · 解析</div>
+                <div class="page-title">解析链接</div>
+                <div class="page-sub">支持网易云、QQ 音乐、酷狗、酷我的歌单与专辑。链接或整段分享文案都可以。</div>
+            </div>
+        </header>
+
+        <section class="parse-card rise" style="--i: 1">
             <div class="parse-head">
-                <h1 class="parse-title">粘贴分享链接解析</h1>
-                <p class="parse-desc">支持网易云、QQ 音乐、酷狗、酷我的歌单与专辑。链接或整段分享文案都可以。</p>
+                <span class="parse-label">SHARE LINK · 分享链接</span>
             </div>
 
             <n-input v-model:value="input" type="textarea" :autosize="{ minRows: 3, maxRows: 6 }" :disabled="loading"
@@ -108,6 +115,7 @@ import { getLoginStatus, parseShareLink } from '../api/musicApi'
 import type { AlbumSongsResponse, PlaylistSongsResponse, ShareLinkParseResponse, SongDetailResponse, SongInfo } from '../types'
 import { useDownloadActions } from '../composables/useDownloadActions'
 import { useMusicNavigation } from '../composables/useMusicNavigation'
+import { useLogStore } from '../stores/logStore'
 import { PLATFORMS, DEFAULT_PLATFORM } from '../config/platforms'
 import { detectShareHint, PLATFORM_NAMES, LINK_KIND_NAMES } from '../utils/shareLink'
 import { formatPlayCount } from '../utils/format'
@@ -183,6 +191,7 @@ const summary = computed(() => {
     }
 })
 
+const logStore = useLogStore()
 const { downloadSingle, batchDownload } = useDownloadActions()
 const { openRelatedArtist, openSongAlbum } = useMusicNavigation()
 
@@ -250,14 +259,34 @@ async function handleParse() {
         result.value = parsed
         if (!songs.value.length) {
             errorMsg.value = '解析成功，但该内容没有可下载的歌曲'
+            logStore.push({
+                level: 'warn',
+                scope: 'parse',
+                title: '解析成功但没有可用歌曲',
+                detail: `${platformName(parsed.platform)} ${kindName(parsed.kind)} · ${summary.value?.title ?? value.slice(0, 60)}`,
+                platform: parsed.platform,
+            })
             return
         }
+        logStore.push({
+            level: 'success',
+            scope: 'parse',
+            title: `解析成功 · ${platformName(parsed.platform)} ${kindName(parsed.kind)}`,
+            detail: `${summary.value?.title ?? ''}${summary.value?.title ? ' · ' : ''}${songs.value.length} 首歌曲`,
+            platform: parsed.platform,
+        })
         // 解析到哪个平台就只用哪个平台，不跨平台替换；只有 QQ 未登录时提醒一句。
         if (parsed.platform === 'qqmusic') {
             await warnIfQqLoggedOut()
         }
     } catch (e: any) {
         errorMsg.value = e?.message || String(e) || '解析失败'
+        logStore.push({
+            level: 'error',
+            scope: 'parse',
+            title: '解析失败',
+            detail: `${errorMsg.value} · ${value.slice(0, 100)}`,
+        })
     } finally {
         loading.value = false
     }
@@ -303,24 +332,21 @@ watch(
     display: flex;
     flex-direction: column;
     gap: 12px;
-    padding: 22px 24px;
+    padding: 22px 24px 20px;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     box-shadow: var(--shadow-sm);
 }
 
-.parse-title {
-    margin: 0 0 6px;
-    font-size: 18px;
-    font-weight: 700;
-    color: var(--text-primary);
+.parse-head {
+    margin-bottom: 2px;
 }
 
-.parse-desc {
-    margin: 0;
-    font-size: 13.5px;
-    line-height: 1.6;
+.parse-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.14em;
     color: var(--text-tertiary);
 }
 
@@ -381,7 +407,7 @@ watch(
     flex-wrap: wrap;
     gap: 8px;
     padding-top: 12px;
-    border-top: 1px dashed var(--border-light);
+    border-top: 1px solid var(--border-light);
 }
 
 .examples-label {
@@ -429,7 +455,7 @@ watch(
     border-radius: 14px;
     object-fit: cover;
     flex-shrink: 0;
-    background: linear-gradient(135deg, #8a5cf6, #e879b0);
+    background: var(--surface-sunken);
 }
 
 .result-cover.is-empty {

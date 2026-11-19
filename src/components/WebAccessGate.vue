@@ -10,6 +10,7 @@
             </div>
 
             <template v-if="webSession.mode === 'password'">
+                <div class="eyebrow access-eyebrow">Server access · 服务访问</div>
                 <div class="access-title">连接下载服务</div>
                 <p class="access-desc">请输入服务部署时配置的用户名和密码。</p>
                 <form @submit.prevent="submit">
@@ -24,6 +25,7 @@
             </template>
 
             <template v-else-if="webSession.mode === 'token'">
+                <div class="eyebrow access-eyebrow">Server access · 服务访问</div>
                 <div class="access-title">连接下载服务</div>
                 <p class="access-desc">请输入服务部署时配置的访问令牌。</p>
                 <form @submit.prevent="submit">
@@ -47,6 +49,10 @@
             <n-alert v-if="webSession.error" type="error" class="access-error">
                 {{ webSession.error }}
             </n-alert>
+
+            <p v-if="webSession.mode !== null" class="access-note">
+                凭据只保存在当前浏览器会话，关闭页面后需重新输入。
+            </p>
         </div>
     </div>
 </template>
@@ -78,8 +84,8 @@ async function submit() {
     place-items: center;
     padding: 24px;
     background:
-        radial-gradient(1200px 600px at 15% -10%, #e8f0fe 0%, transparent 55%),
-        radial-gradient(900px 520px at 110% 0%, #eef1ff 0%, transparent 50%),
+        radial-gradient(900px 480px at 20% -10%, #ffffff 0%, transparent 62%),
+        radial-gradient(700px 420px at 105% 105%, #e9e7dc 0%, transparent 58%),
         var(--bg);
 }
 
@@ -87,16 +93,16 @@ async function submit() {
     width: min(420px, 100%);
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 16px;
+    border-radius: var(--radius-xl);
     box-shadow: var(--shadow-lg);
-    padding: 32px;
-    animation: accessIn 0.24s ease;
+    padding: 34px;
+    animation: accessIn 0.42s var(--ease-out);
 }
 
 @keyframes accessIn {
     from {
         opacity: 0;
-        transform: translateY(8px);
+        transform: translateY(12px);
     }
 
     to {
@@ -109,47 +115,57 @@ async function submit() {
     display: flex;
     align-items: center;
     gap: 12px;
-    margin-bottom: 26px;
+    margin-bottom: 30px;
 }
 
 .brand-logo {
-    width: 44px;
-    height: 44px;
+    width: 38px;
+    height: 38px;
     flex: none;
-    border-radius: 12px;
+    border-radius: 11px;
     background: var(--accent);
     color: #fff;
     display: grid;
     place-items: center;
-    font-weight: 700;
-    font-size: 18px;
-    letter-spacing: 0.5px;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 16px;
+    letter-spacing: 0.01em;
 }
 
 .brand-name {
-    font-weight: 700;
-    font-size: 16px;
+    font-weight: 600;
+    font-size: 14px;
     line-height: 1.2;
+    letter-spacing: -0.01em;
     color: var(--text-primary);
 }
 
 .brand-sub {
-    font-size: 12px;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
     color: var(--text-tertiary);
-    margin-top: 3px;
+    margin-top: 4px;
+}
+
+.access-eyebrow {
+    margin-bottom: 8px;
 }
 
 .access-title {
-    font-size: 20px;
-    font-weight: 700;
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -0.025em;
     color: var(--text-primary);
 }
 
 .access-desc {
-    margin: 6px 0 20px;
+    margin: 8px 0 22px;
     color: var(--text-secondary);
-    font-size: 13.5px;
-    line-height: 1.6;
+    font-size: 13px;
+    line-height: 1.65;
 }
 
 .password-input {
@@ -160,11 +176,20 @@ async function submit() {
     width: 100%;
     height: 44px;
     margin-top: 18px;
-    font-size: 15px;
+    font-size: 14px;
+    border-radius: 999px !important;
 }
 
 .access-error {
     margin-top: 14px;
+}
+
+.access-note {
+    margin-top: 16px;
+    font-size: 11.5px;
+    line-height: 1.6;
+    color: var(--text-tertiary);
+    text-align: center;
 }
 
 @media (prefers-reduced-motion: reduce) {
