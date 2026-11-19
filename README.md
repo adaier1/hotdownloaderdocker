@@ -135,11 +135,72 @@ services:
 | `/data/tasks.json` | 下载任务 |
 | `/data/auth.json` | 访问账号密码（界面修改密码后写入） |
 | `/data/mcp.json` | MCP 接入密钥（设置页可重置） |
+| `/data/shortcut.json` | 快捷指令密钥（设置页可重置） |
 | `/data/notify.json` | 通知配置（飞书 FSKEY） |
 | `/data/qq-credentials.json` | QQ 音乐登录凭据 |
 | `/downloads/` | 下载的音乐文件 |
 
 > 从旧版 Web 版（axum `/api/invoke`）升级：旧 `/data/data.json` 不会自动读取。可将其中的 `settings`、`tasks` 字段分别写成 `settings.json`、`tasks.json`（旧任务记录字段与 v2.0.0 兼容）。搜索历史为浏览器本地数据，存于 `localStorage`。
+
+---
+
+## ⚡ 快捷指令（iOS 捷径 / 脚本）
+
+把分享链接交给手机上的「分享 → 运行捷径」，服务端解析后**直接创建下载任务**，不需要打开网页逐首确认。
+入口在 **设置 → 快捷指令**（Web 版），可复制调用地址、重置 Key。
+
+### 调用地址
+
+```
+http://<主机IP>:8080/api/shortcut/parse?key=<密钥>&url=<URL 编码后的分享链接>
+```
+
+- 只接受 `GET`，其它方法返回 `405`。
+- `key` 由服务端生成并保存在 `/data/shortcut.json`，点击「重置 Key」后旧地址立即失效。
+- 该接口用 `key` 认证，**不经过用户名密码**，所以这条地址等同于凭据，别发到群里或截图外传。
+
+### 参数
+
+| 参数 | 必填 | 说明 |
+| --- | --- | --- |
+| `key` | 是 | 快捷指令密钥，见设置页 |
+| `url` | 是 | 分享链接或整段分享文案，需整体 URL 编码（`:` `/` `?` `&` 都要转义） |
+| `limit` | 否 | 单次最多创建的任务数，默认 `20`，范围 `1–100` |
+
+### 返回
+
+```json
+{
+  "ok": true,
+  "message": "已创建 12 个下载任务",
+  "platform": "qqmusic",
+  "kind": "playlist",
+  "total": 48,
+  "createdCount": 12,
+  "failedCount": 0,
+  "songs": [{ "taskId": "…", "title": "晴天", "artist": "周杰伦", "quality": "flac" }],
+  "failed": []
+}
+```
+
+- `message` 可以直接放进通知或弹窗；`songs` 是已创建的任务（带 `existing: true` 表示命中已有任务，没有重复建单）。
+- 音质遵循设置里的「默认音质」；该档不可用时按任务规则自动降级。设置为「每次询问」时，取该曲最高可用音质（捷径没有选择界面）。
+- 重名文件自动「保留两份」，不会停在确认弹窗上。
+
+### iOS 捷径搭建
+
+1. 新建捷径，接收分享表单的 `URL`（或用「获取剪贴板」）。
+2. 添加「URL 编码」动作，把分享链接编码。
+3. 添加「获取 URL 内容」：
+   - 地址：`http://<主机IP>:8080/api/shortcut/parse?key=<密钥>&url=` 拼接第 2 步结果
+   - 方法：`GET`
+4. 添加「获取字典值」，取 `message`，再用「显示通知」或「显示提醒」输出结果。
+
+命令行验证：
+
+```bash
+curl "http://127.0.0.1:8080/api/shortcut/parse?key=<密钥>&url=https%3A%2F%2Fy.qq.com%2Fn%2Fryqq%2Fplaylist%2F123456"
+```
 
 ---
 
