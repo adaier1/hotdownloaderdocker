@@ -1,0 +1,35 @@
+//! 汽水音乐设置：登录 Cookie 的保存、查询与清除。
+//!
+//! Cookie 存在应用数据目录的独立文件里，不进入设置快照；
+//! 保存后立即刷新进程内缓存，搜索与详情无需重启即可带上登录态。
+
+use hotdownloader_core::platforms::qishui::credentials::{self, Store};
+use tauri::{command, AppHandle, Manager};
+
+fn store(app: &AppHandle) -> Result<Store, String> {
+    Ok(Store::new(
+        app.path()
+            .app_data_dir()
+            .map_err(|error| error.to_string())?
+            .join("qishui-credentials.json"),
+    ))
+}
+
+/// 只返回是否配置与键名摘要，不回显 Cookie 值。
+#[command]
+pub async fn get_qishui_cookie_status(app: AppHandle) -> Result<credentials::Status, String> {
+    store(&app)?.status()
+}
+
+#[command]
+pub async fn save_qishui_cookie(
+    app: AppHandle,
+    cookie: String,
+) -> Result<credentials::Status, String> {
+    store(&app)?.save_cookie(&cookie)
+}
+
+#[command]
+pub async fn clear_qishui_cookie(app: AppHandle) -> Result<(), String> {
+    store(&app)?.clear()
+}

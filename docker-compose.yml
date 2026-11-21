@@ -17,7 +17,7 @@
 # 访问：http://<主机IP>:8080
 #
 # 数据持久化：
-#   ./data      任务/设置/登录凭据（settings.json / tasks.json / qq-credentials.json）
+#   ./data      任务/设置/登录凭据/运行日志（settings.json / tasks.json / qq-credentials.json / logs.json）
 #   ./downloads 下载的音乐文件
 #
 # 可用环境变量覆盖：

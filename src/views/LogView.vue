@@ -5,7 +5,9 @@
                 <div class="eyebrow">Logs · 运行日志</div>
                 <h1 class="page-title">日志</h1>
                 <p class="page-sub">
-                    解析、下载与账号事件的流水。只保留最近 {{ MAX_ENTRIES }} 条，超出后自动丢弃。
+                    {{ isNativeRuntime()
+                        ? `解析、下载与账号事件的流水。最多保留最近 ${MAX_ENTRIES} 条。`
+                        : `解析、下载与账号事件的流水。日志保存在服务端，最多保留最近 ${MAX_ENTRIES} 条。` }}
                 </p>
             </div>
             <div class="page-head-actions">
@@ -56,15 +58,15 @@
             </template>
 
             <div v-else class="empty-state">
-                <div class="empty-title">还没有日志</div>
-                <div class="empty-sub">
-                    {{ logStore.entries.length > 0 ? '当前筛选条件下没有记录' : '解析一个歌单或下载一首歌，这里就会留下流水。' }}
-                </div>
+                <div class="empty-title">{{ emptyTitle }}</div>
+                <div class="empty-sub">{{ emptySub }}</div>
             </div>
         </section>
 
         <p class="log-note rise" style="--i: 3">
-            日志保存在本机，不上传服务端。清空后不可恢复。
+            {{ isNativeRuntime()
+                ? '日志保存在本机，换浏览器或清理站点数据会丢失。清空后不可恢复。'
+                : '日志保存在服务端 data/logs.json，换设备或清理浏览器缓存后仍在。清空后不可恢复。' }}
         </p>
     </div>
 </template>
@@ -73,6 +75,7 @@
 import { computed, onActivated, onMounted, ref } from 'vue'
 import { useDialog } from 'naive-ui'
 import { MAX_LOG_ENTRIES, useLogStore, type LogEntry, type LogScope } from '../stores/logStore'
+import { isNativeRuntime } from '../api/runtimeApi'
 import { PLATFORMS } from '../config/platforms'
 
 const MAX_ENTRIES = MAX_LOG_ENTRIES
@@ -124,6 +127,20 @@ const groups = computed(() => {
     return buckets
 })
 
+/** 读取失败与「确实还没有日志」要分开提示，否则会误以为流水被清空了。 */
+const emptyTitle = computed(() => {
+    if (logStore.error) return '日志读取失败'
+    if (logStore.syncing) return '正在读取日志'
+    return '还没有日志'
+})
+
+const emptySub = computed(() => {
+    if (logStore.error) return logStore.error
+    if (logStore.syncing) return '正在从服务端读取运行流水。'
+    if (logStore.entries.length > 0) return '当前筛选条件下没有记录'
+    return '解析一个歌单或下载一首歌，这里就会留下流水。'
+})
+
 function dayLabel(date: Date): string {
     const today = new Date()
     const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
@@ -159,12 +176,13 @@ function confirmClear() {
         content: `确定清空全部 ${logStore.entries.length} 条日志吗？此操作不可恢复，不影响任务与文件。`,
         positiveText: '清空',
         negativeText: '取消',
-        onPositiveClick: () => logStore.clear(),
+        onPositiveClick: () => { void logStore.clear() },
     })
 }
 
-onMounted(() => logStore.ensureLoaded())
-onActivated(() => logStore.ensureLoaded())
+// 进入页面时向服务端要一份最新快照，其他设备写入的记录也能看到。
+onMounted(() => { void logStore.load(true) })
+onActivated(() => { void logStore.load(true) })
 </script>
 
 <style scoped>

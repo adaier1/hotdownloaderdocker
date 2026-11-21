@@ -38,12 +38,33 @@ pub(super) fn cookie_value<'a>(cookie: &'a str, name: &str) -> &'a str {
         .unwrap_or("")
 }
 
+/// 网易云 weapi 要求请求体里的 `csrf_token` 与 Cookie 中的 `__csrf` 一致。
+///
+/// 用户从别处复制的 Cookie 常常只带 `MUSIC_U`，缺少 `__csrf` 时所有 weapi
+/// 接口都会返回 `code=400`。这里按需补一个随机值，且同一次请求内保持一致。
+fn ensure_csrf(cookie: &str) -> String {
+    if !cookie_value(cookie, "__csrf").is_empty() {
+        return cookie.to_string();
+    }
+    let token: String = (0..16)
+        .map(|_| char::from(b"0123456789abcdef"[(rand::random::<u8>() % 16) as usize]))
+        .collect();
+    let trimmed = cookie.trim().trim_end_matches(';');
+    if trimmed.is_empty() {
+        format!("__csrf={token}")
+    } else {
+        format!("{trimmed}; __csrf={token}")
+    }
+}
+
 pub(super) async fn request(
     path: &str,
     mut data: Value,
     cookie: &str,
     encrypted_api: bool,
 ) -> Result<(Value, String), String> {
+    let cookie = ensure_csrf(cookie);
+    let cookie = cookie.as_str();
     let mut cookies = cookie.to_string();
     let (form, url) = if encrypted_api {
         let mut header = json!({
@@ -158,4 +179,26 @@ pub(super) async fn anonymous_cookie() -> Result<String, String> {
     }
     *cached = Some((cookie.clone(), std::time::Instant::now()));
     Ok(cookie)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{cookie_value, ensure_csrf};
+
+    #[test]
+    fn missing_csrf_is_filled_and_existing_one_is_kept() {
+        // 只有 MUSIC_U 的 Cookie 补一个 16 位 csrf，请求体才能与之对齐。
+        let filled = ensure_csrf("MUSIC_U=abc");
+        assert!(filled.starts_with("MUSIC_U=abc; __csrf="), "{filled}");
+        assert_eq!(cookie_value(&filled, "__csrf").len(), 16);
+
+        // 已有值必须原样保留，不能覆盖用户会话里的 csrf。
+        let kept = ensure_csrf("MUSIC_U=abc; __csrf=deadbeef");
+        assert_eq!(kept, "MUSIC_U=abc; __csrf=deadbeef");
+
+        // 空 Cookie 只补 csrf，避免拼出前导分号。
+        let empty = ensure_csrf("");
+        assert!(empty.starts_with("__csrf="), "{empty}");
+        assert!(!empty.starts_with(';'));
+    }
 }

@@ -20,6 +20,9 @@ pub enum Platform {
     /// 哔哩哔哩（仅支持视频链接解析，不参与搜索）
     #[serde(rename = "bilibili")]
     Bilibili,
+    /// 汽水音乐（匿名接口；会员曲目只能拿到试听片段）
+    #[serde(rename = "qishui")]
+    Qishui,
 }
 
 impl Platform {
@@ -31,6 +34,7 @@ impl Platform {
             Self::Kugou => "kugou",
             Self::Netease => "netease",
             Self::Bilibili => "bilibili",
+            Self::Qishui => "qishui",
         }
     }
 }
@@ -46,6 +50,7 @@ impl FromStr for Platform {
             "kugou" => Ok(Self::Kugou),
             "netease" => Ok(Self::Netease),
             "bilibili" => Ok(Self::Bilibili),
+            "qishui" => Ok(Self::Qishui),
             _ => Err(format!("不支持的平台: {value}")),
         }
     }
@@ -61,6 +66,8 @@ mod tests {
         assert_eq!("kuwo".parse::<Platform>().unwrap(), Platform::Kuwo);
         assert_eq!("kugou".parse::<Platform>().unwrap(), Platform::Kugou);
         assert_eq!("netease".parse::<Platform>().unwrap(), Platform::Netease);
+        assert_eq!("qishui".parse::<Platform>().unwrap(), Platform::Qishui);
+        assert_eq!(Platform::Qishui.as_str(), "qishui");
         assert_eq!(
             "other".parse::<Platform>().unwrap_err(),
             "不支持的平台: other"

@@ -8,7 +8,10 @@
         </div>
 
         <div class="info">
-            <div class="title">{{ song.title }}</div>
+            <div class="title">
+                {{ song.title }}
+                <span v-if="song.preview" class="preview-tag" title="音源只返回试听片段">试听</span>
+            </div>
             <div class="artist">
                 <ArtistNames :platform="song.platform" :artists="song.artists" :fallback="song.artist"
                     @click-artist="(platform, artist) => $emit('click-artist', platform, artist)" />
@@ -169,6 +172,18 @@ watch(() => props.song.id, () => {
     text-overflow: ellipsis;
     color: var(--text-primary);
     line-height: 1.5;
+}
+
+.preview-tag {
+    margin-left: 6px;
+    padding: 0 5px;
+    font-size: 10.5px;
+    font-weight: 400;
+    line-height: 15px;
+    color: var(--text-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    vertical-align: 1px;
 }
 
 .artist {

@@ -17,6 +17,8 @@ hyper-util = { version = "0.1.20", features = ["http1", "server", "tokio"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 log = "0.4"
+# 登录二维码渲染：只用矩阵输出，PNG 编码在 src/qr.rs 内自带实现。
+qrcode = { version = "0.14", default-features = false }
 # 通知推送（飞书机器人）需要 HTTPS 客户端；与核心同版本，复用同一份依赖。
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 tokio = { version = "1.53.1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }

@@ -159,6 +159,16 @@ impl DownloadLinkProvider for PlatformDownloadLinkProvider {
                     )
                     .await
                 }
+                // 汽水没有按档位取链接的接口，按曲目 ID 重新取详情再挑变体；
+                // 返回的 play_auth 交给下载完成后的整文件解密。
+                Platform::Qishui => {
+                    crate::platforms::qishui::link::get_download_link(
+                        &self.client,
+                        song_mid,
+                        filename,
+                    )
+                    .await
+                }
             }
         })
     }

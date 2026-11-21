@@ -532,6 +532,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "log",
+ "qrcode",
  "reqwest",
  "serde",
  "serde_json",

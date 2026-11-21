@@ -35,6 +35,13 @@ pub fn run() {
         .plugin(tauri_plugin_safe_area_insets_css_edge::init()) // 注册安全区域插件
         .setup(|app| {
             store_wrapper::initialize(app.handle())?;
+            // 汽水 Cookie 供所有接口请求复用：启动时载入进程内缓存。
+            hotdownloader_core::platforms::qishui::credentials::Store::new(
+                app.path()
+                    .app_data_dir()?
+                    .join("qishui-credentials.json"),
+            )
+            .preload();
             // 下载器启动前先恢复持久化任务；后续下载事件才能更新权威任务状态。
             let task_io = Arc::new(adapters::tauri_task_io::TauriTaskIo::new(
                 app.handle().clone(),
@@ -172,6 +179,9 @@ pub fn run() {
             commands::api::login::get_login_status,
             commands::api::login::kugou_login,
             commands::api::login::netease_login,
+            commands::api::qishui::get_qishui_cookie_status,
+            commands::api::qishui::save_qishui_cookie,
+            commands::api::qishui::clear_qishui_cookie,
             commands::notify::request_notification_permission,
             commands::notify::check_notification_permission,
         ])

@@ -31,6 +31,7 @@ pub async fn fetch_playlist_songs(
             platforms::kugou::playlist::fetch_playlist_songs(&separator, input).await
         }
         Platform::Bilibili => Err("B 站仅支持分享链接解析，不支持歌单".into()),
+        Platform::Qishui => Err("汽水暂不支持歌单解析".into()),
     }
 }
 
@@ -63,6 +64,7 @@ pub async fn search_playlists(
         Platform::Kuwo => platforms::kuwo::playlist::search_playlists(keyword, page, limit).await,
         Platform::Kugou => platforms::kugou::playlist::search_playlists(keyword, page, limit).await,
         Platform::Bilibili => Err("B 站仅支持分享链接解析，不支持歌单搜索".into()),
+        Platform::Qishui => Err("汽水暂不支持歌单搜索".into()),
     }
 }
 

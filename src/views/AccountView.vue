@@ -4,7 +4,7 @@
             <div class="page-head-main">
                 <div class="eyebrow">Account · 账号</div>
                 <div class="page-title">账号设置</div>
-                <div class="page-sub">统一管理 QQ 音乐、酷狗音乐与网易云音乐的登录状态；登录后会提高对应平台的下载音质与可用范围</div>
+                <div class="page-sub">统一管理 QQ 音乐、酷狗音乐、网易云音乐与汽水音乐的登录状态；登录后会提高对应平台的下载音质与可用范围</div>
             </div>
         </header>
 
@@ -42,6 +42,16 @@
                 <NeteaseLoginSetting />
             </n-form>
         </div>
+
+        <div class="set-card account-section rise" style="--i: 5">
+            <div class="set-card-title">汽水音乐</div>
+            <div class="set-card-sub">
+                手动粘贴登录 Cookie 后，搜索与详情才会带上登录态；未配置时只能用分享链接解析，会员曲目只有试听片段
+            </div>
+            <n-form :label-placement="isNarrow ? 'top' : 'left'">
+                <QishuiCookieSetting />
+            </n-form>
+        </div>
     </div>
 </template>
 
@@ -52,9 +62,11 @@ import { useNarrowLayout } from '../composables/useNarrowLayout'
 import LoginSetting from '../components/settings/LoginSetting.vue'
 import KugouLoginSetting from '../components/settings/KugouLoginSetting.vue'
 import NeteaseLoginSetting from '../components/settings/NeteaseLoginSetting.vue'
+import QishuiCookieSetting from '../components/settings/QishuiCookieSetting.vue'
 import { getLoginStatus } from '../api/musicApi'
 import { kugouLogin } from '../api/kugouLogin'
 import { neteaseLogin } from '../api/neteaseLogin'
+import { getQishuiCookieStatus } from '../api/qishuiApi'
 
 type LoginState = 'loading' | 'ok' | 'none' | 'guest' | 'error'
 
@@ -74,6 +86,7 @@ const statuses = ref<PlatformStatus[]>([
     { key: 'kugou', name: '酷狗音乐', state: 'loading', detail: '' },
     { key: 'netease', name: '网易云音乐', state: 'loading', detail: '' },
     { key: 'kuwo', name: '酷我音乐', state: 'guest', detail: '' },
+    { key: 'qishui', name: '汽水音乐', state: 'loading', detail: '' },
 ])
 
 function statusText(item: PlatformStatus): string {
@@ -101,18 +114,22 @@ async function refreshStatus() {
         }
     }
     try {
-        const [qq, kugou, netease] = await Promise.all([
+        const [qq, kugou, netease, qishui] = await Promise.all([
             getLoginStatus('qqmusic').catch(() => null),
             kugouLogin('status').catch(() => null),
             neteaseLogin('status').catch(() => null),
+            getQishuiCookieStatus().catch(() => null),
         ])
         mark('qqmusic', qq?.logged_in ? 'ok' : 'none', qq?.uin ?? '')
         mark('kugou', kugou?.logged_in ? 'ok' : 'none', kugou?.userid ?? '')
         mark('netease', netease?.logged_in ? 'ok' : 'none', netease?.nickname ?? '')
+        // 汽水只有手动粘贴的 Cookie，没有账号信息可展示。
+        mark('qishui', qishui?.configured ? 'ok' : 'none', qishui?.configured ? 'Cookie 已配置' : '')
     } catch {
         mark('qqmusic', 'error')
         mark('kugou', 'error')
         mark('netease', 'error')
+        mark('qishui', 'error')
     } finally {
         refreshing.value = false
     }

@@ -111,6 +111,8 @@ pub fn write_audio_metadata(
     }
 
     let tag_type = tagged_file.primary_tag_type();
+    // MP4 的 covr 不记录图片类型，读回时无法要求 CoverFront，只校验字节一致。
+    let mp4_container = tagged_file.file_type() == lofty::file::FileType::Mp4;
     if tagged_file.primary_tag().is_none() {
         tagged_file.insert_tag(Tag::new(tag_type));
     }
@@ -170,7 +172,8 @@ pub fn write_audio_metadata(
         }
         if assets.cover_bytes.as_deref().is_some_and(|bytes| {
             !tag.pictures().iter().any(|picture| {
-                picture.pic_type() == PictureType::CoverFront && picture.data() == bytes
+                picture.data() == bytes
+                    && (mp4_container || picture.pic_type() == PictureType::CoverFront)
             })
         }) {
             return Err("校验 metadata 失败：封面未正确保存".into());

@@ -14,6 +14,7 @@ export const PLATFORM_NAMES: Record<string, string> = {
     kugou: '酷狗音乐',
     netease: '网易云音乐',
     bilibili: '哔哩哔哩',
+    qishui: '汽水音乐',
 }
 
 export const LINK_KIND_NAMES: Record<ShareLinkKind, string> = {
@@ -48,6 +49,9 @@ export function detectSharePlatform(url: string): string | null {
     if (bare === 'kugou.com' || host.endsWith('.kugou.com')) return 'kugou'
     if (bare === 'kuwo.cn' || host.endsWith('.kuwo.cn')) return 'kuwo'
     if (host.endsWith('bilibili.com') || host === 'b23.tv') return 'bilibili'
+    // 汽水分享短链与抖音同域，只认 qishui 子域与 /qishui/ 分享页。
+    if (bare === 'qishui.douyin.com') return 'qishui'
+    if (bare === 'music.douyin.com' && url.toLowerCase().includes('/qishui/')) return 'qishui'
     return null
 }
 
@@ -84,6 +88,11 @@ export function detectShareKind(platform: string, url: string): ShareLinkKind {
             return classify(route, ['/playlist_detail', '/playlist/'], ['/album_detail', '/album/'], ['/play_detail', '/play/'])
         // B 站只有视频，BV 号本身就是单曲。
         case 'bilibili':
+            return 'song'
+        // 汽水分享短链离线无法区分单曲与歌单，按单曲处理；歌单在后端给出明确错误。
+        case 'qishui':
+            if (route.includes('/share/playlist') || route.includes('playlist_id')) return 'playlist'
+            if (route.includes('/share/album')) return 'album'
             return 'song'
         default:
             return 'unknown'

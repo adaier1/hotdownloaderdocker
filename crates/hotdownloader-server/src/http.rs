@@ -316,7 +316,49 @@ pub async fn handle(
             Err(error) => error_response(StatusCode::BAD_REQUEST, error),
         },
         (Method::GET, "/api/tasks") => json_response(StatusCode::OK, json!(service.load_tasks())),
+        // 运行日志：网页端只读服务端快照，换设备、清缓存或更换端口后记录仍在。
+        (Method::GET, "/api/logs") => json_response(StatusCode::OK, json!(runtime.logs.list())),
+        (Method::POST, "/api/logs") => match read_json(request).await {
+            Ok(value) => match serde_json::from_value::<crate::logs::LogInput>(value) {
+                Ok(input) => match runtime.logs.append(input) {
+                    Ok(entry) => {
+                        // 回显给同一用户的其他页面；提交页按 id 去重，不会出现两条。
+                        runtime
+                            .events
+                            .send("log-appended", crate::logs::to_event_data(&entry));
+                        json_response(StatusCode::OK, json!(entry))
+                    }
+                    Err(error) => error_response(StatusCode::BAD_REQUEST, error),
+                },
+                Err(error) => error_response(StatusCode::BAD_REQUEST, error.to_string()),
+            },
+            Err(error) => error_response(StatusCode::BAD_REQUEST, error),
+        },
+        (Method::POST, "/api/logs/clear") => {
+            runtime.logs.clear();
+            runtime.events.send("log-cleared", "[]".to_string());
+            json_response(StatusCode::OK, json!({ "ok": true }))
+        }
         (Method::GET, "/api/events") => event_stream(runtime),
+        // 汽水登录 Cookie：只返回配置状态与键名，不回显值。
+        (Method::GET, "/api/qishui/cookie") => match runtime.qishui_store.status() {
+            Ok(status) => json_response(StatusCode::OK, json!(status)),
+            Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
+        },
+        (Method::POST, "/api/qishui/cookie") => match read_json(request).await {
+            Ok(value) => {
+                let cookie = value["cookie"].as_str().unwrap_or_default();
+                match runtime.qishui_store.save_cookie(cookie) {
+                    Ok(status) => json_response(StatusCode::OK, json!(status)),
+                    Err(error) => error_response(StatusCode::BAD_REQUEST, error),
+                }
+            }
+            Err(error) => error_response(StatusCode::BAD_REQUEST, error),
+        },
+        (Method::DELETE, "/api/qishui/cookie") => match runtime.qishui_store.clear() {
+            Ok(()) => json_response(StatusCode::OK, json!({ "ok": true })),
+            Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, error),
+        },
         (Method::GET, "/api/settings") => json_response(
             StatusCode::OK,
             json!(runtime.environment.settings_snapshot()),
@@ -486,6 +528,26 @@ pub async fn handle(
                 error_response(StatusCode::NOT_FOUND, "未知二维码会话")
             } else {
                 legacy_json_result(qq_login::check_qr_login(id.to_string()).await)
+            }
+        }
+        (Method::GET, path) if path.starts_with("/api/login/qr-image/") => {
+            let name = path.trim_start_matches("/api/login/qr-image/");
+            // 只允许扫码登录的三个平台，文件名固定，避免任何路径拼接风险。
+            let allowed = name
+                .strip_suffix(".png")
+                .is_some_and(|stem| matches!(stem, "qqmusic" | "netease" | "kugou"));
+            if !allowed {
+                error_response(StatusCode::NOT_FOUND, "二维码不存在")
+            } else {
+                match std::fs::read(runtime.data_dir.join("qr").join(name)) {
+                    Ok(bytes) => Response::builder()
+                        .status(StatusCode::OK)
+                        .header("content-type", "image/png")
+                        .header("cache-control", "no-store")
+                        .body(Full::new(Bytes::from(bytes)).boxed_unsync())
+                        .expect("固定的二维码响应头应始终有效"),
+                    Err(_) => error_response(StatusCode::NOT_FOUND, "二维码尚未生成或已过期"),
+                }
             }
         }
         (Method::POST, "/api/tasks") => match read_json(request).await {

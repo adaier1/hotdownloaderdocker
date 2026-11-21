@@ -4,7 +4,7 @@
             <div class="page-head-main">
                 <div class="eyebrow">Search · 检索</div>
                 <h1 class="page-title">搜索音乐</h1>
-                <p class="page-sub">四个平台一次检索，勾选后可以整批加入下载队列。</p>
+                <p class="page-sub">多平台一次检索，勾选后可以整批加入下载队列。</p>
             </div>
         </header>
 

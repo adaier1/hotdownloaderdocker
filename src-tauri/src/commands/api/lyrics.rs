@@ -19,5 +19,9 @@ pub async fn get_lyric_by_id(
         Platform::QqMusic => platforms::qqmusic::lyrics::get_lyric_by_id(song_id).await,
         Platform::Kuwo => platforms::kuwo::lyrics::get_lyric_by_id(song_id).await,
         Platform::Bilibili => Err("B 站没有歌词接口".into()),
+        // 汽水曲目 ID 是 19 位数字，超出前端 JS 安全整数，只能从 mid 读取。
+        Platform::Qishui => {
+            platforms::qishui::lyrics::get_lyric(song_mid.as_deref().unwrap_or("")).await
+        }
     }
 }

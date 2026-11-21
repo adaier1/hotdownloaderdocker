@@ -76,6 +76,8 @@ pub async fn prepare_assets(
             }
             // B 站没有歌词接口，返回空歌词，由收尾流程补「暂无歌词」占位。
             Platform::Bilibili => Ok(Default::default()),
+            // 汽水歌词随详情接口一起返回，用曲目 ID（mid）查询。
+            Platform::Qishui => crate::platforms::qishui::lyrics::get_lyric(&context.song_mid).await,
         }
     })
     .await

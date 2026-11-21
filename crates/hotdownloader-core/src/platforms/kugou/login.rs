@@ -217,7 +217,13 @@ pub async fn execute(
                     created: Instant::now(),
                 },
             );
-            Ok(json!({"qrcode_id":session_id,"qr_image":image}))
+            Ok(json!({
+                "qrcode_id":session_id,
+                "qr_image":image,
+                // 原文链接供非浏览器客户端（如 MCP）自行渲染 PNG。
+                "qr_url":url.to_string()
+            }))
+
         }
         "check" => {
             let (key, generation, mut params) = {

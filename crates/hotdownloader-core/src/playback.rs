@@ -59,7 +59,7 @@ pub async fn resolve(
     }
     let order = [
         "320kmp3", "128kmp3", "192kaac", "96kaac", "48kaac", "300kogg", "192kogg", "100kogg",
-        "96kogg", "flac",
+        "96kogg", "flac", "hires", "spatial", "320kaac", "128kaac", "64kaac",
     ];
     let mut qualities: Vec<_> = request
         .qualities

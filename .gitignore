@@ -17,6 +17,7 @@ dist-windows
 dist-live
 **/target/
 data/
+data-local/
 downloads/
 *.local
 

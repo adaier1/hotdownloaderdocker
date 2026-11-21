@@ -1,6 +1,7 @@
 import type { TaskRecord, DownloadMetadataErrorPayload } from '../types'
 import type { TaskTransport } from './taskTransport'
 import type { SettingsSnapshot } from './settingsApi'
+import type { LogEntry } from './logApi'
 import { webHeaders, webRequest, webSession } from './webClient'
 
 /** 解析一条 SSE 消息。数据始终是服务端序列化的 JSON。 */
@@ -39,6 +40,12 @@ function dispatchEvent(frame: string, handlers: Parameters<TaskTransport['subscr
             } as DownloadMetadataErrorPayload)
             break
         }
+        case 'log-appended':
+            handlers.log?.(data as LogEntry)
+            break
+        case 'log-cleared':
+            handlers.logsCleared?.()
+            break
     }
 }
 
@@ -104,7 +111,8 @@ async function followEvents(signal: AbortSignal, handlers: Parameters<TaskTransp
         await new Promise(resolve => setTimeout(resolve, retryDelay))
         retryDelay = Math.min(retryDelay * 2, 10000)
     }
-    handlers.connection('disconnected')
+    // 主动退订（页面卸载、重新登录）不是连接故障，不能留下"连接中断"的运行日志。
+    if (!signal.aborted) handlers.connection('disconnected')
 }
 
 function taskAction(taskId: string, action: string, body?: object): Promise<unknown> {

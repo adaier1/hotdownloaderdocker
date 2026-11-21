@@ -1,8 +1,11 @@
 // 所有品质标签，按从低到高排序
 export const ALL_QUALITY_ORDER: string[] = [
     '48kaac',
+    '64kaac',
     '96kaac',
+    '128kaac',
     '192kaac',
+    '320kaac',
     '96kogg',
     '100kogg',
     '192kogg',
@@ -10,6 +13,7 @@ export const ALL_QUALITY_ORDER: string[] = [
     '128kmp3',
     '320kmp3',
     'ape',
+    'spatial',
     'flac',
     'hires',
     '臻品全景声',
@@ -127,6 +131,13 @@ export interface SongInfo {
     coverUrl: string
     mediaMid: string
     qualities: QualityItem[]
+    /**
+     * 音源只返回了试听片段。
+     *
+     * 目前只有汽水音乐会出现：会员曲目在没有官方客户端签名时只下发 30–60 秒。
+     * 其余平台不带该字段。
+     */
+    preview?: boolean
 }
 
 // 搜索结果完整返回

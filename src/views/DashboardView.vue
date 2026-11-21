@@ -360,7 +360,8 @@ onMounted(() => {
     void libraryStore.load()
 })
 onActivated(() => {
-    logStore.ensureLoaded()
+    // 日志在服务端，回到总览时刷新一次，避免展示过期流水。
+    void logStore.load(true)
     void libraryStore.load(true)
     updatedAt.value = new Date().toLocaleTimeString('zh-CN', {
         hour: '2-digit',

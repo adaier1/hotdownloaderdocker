@@ -8,6 +8,7 @@ import { tauriTaskTransport } from './tauriTaskTransport'
 import { webTaskTransport } from './webTaskTransport'
 import { isTauri } from '@tauri-apps/api/core'
 import type { SettingsSnapshot } from './settingsApi'
+import type { LogEntry } from './logApi'
 
 /** 与 Rust 任务契约对应的批量操作结果。 */
 export interface BatchTaskResult {
@@ -28,6 +29,10 @@ export interface TaskEventHandlers {
     removed(taskId: string): void
     metadataError(error: DownloadMetadataErrorPayload): void
     loginRefreshFailed(message: string): void
+    /** 服务端写入的运行日志（Web SSE 专有）；桌面端没有独立服务，不会触发。 */
+    log?(entry: LogEntry): void
+    /** 其他页面清空了运行日志（Web SSE 专有）。 */
+    logsCleared?(): void
 }
 
 /** 页面与任务后端的调用边界，与 Tauri command 名称无关。 */

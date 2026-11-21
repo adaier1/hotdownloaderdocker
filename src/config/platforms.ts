@@ -6,10 +6,11 @@ export interface PlatformOption {
 }
 
 export const PLATFORMS: PlatformOption[] = [
-    { key: 'qqmusic', label: 'QQ' },
-    { key: 'kuwo', label: 'KW' },
-    { key: 'kugou', label: 'KG' },
-    { key: 'netease', label: 'WY' },
+  { key: 'qqmusic', label: 'QQ' },
+  { key: 'kuwo', label: 'KW' },
+  { key: 'kugou', label: 'KG' },
+  { key: 'netease', label: 'WY' },
+  { key: 'qishui', label: 'QS' },
 ]
 
 // 默认平台 key

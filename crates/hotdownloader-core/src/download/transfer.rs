@@ -10,6 +10,7 @@ use reqwest::header::{CONTENT_LENGTH, CONTENT_RANGE, RANGE};
 use crate::download::decryption::{self, DecryptContext};
 use crate::download::engine::TaskController;
 use crate::download::ports::DownloadProgressSink;
+use crate::platforms::Platform;
 
 /// 下载专用客户端不设置总超时，大文件只限制连接和单次读取等待时间。
 static DOWNLOAD_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
@@ -17,7 +18,8 @@ static DOWNLOAD_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 fn download_client() -> &'static reqwest::Client {
     DOWNLOAD_CLIENT.get_or_init(|| {
         reqwest::Client::builder()
-            .user_agent("HotDownloader/1.0")
+            // 统一使用桌面 Chrome UA：多数音频 CDN 会拒绝非浏览器客户端。
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
             .connect_timeout(Duration::from_secs(10))
             .read_timeout(Duration::from_secs(300))
             .build()
@@ -25,12 +27,17 @@ fn download_client() -> &'static reqwest::Client {
     })
 }
 
-/// B 站的音频 CDN 会校验来源页，其余平台沿用 QQ 的 Referer。
-fn referer_for(url: &str) -> &'static str {
-    if crate::platforms::bilibili::link::is_stream_host(url) {
-        "https://www.bilibili.com"
-    } else {
-        "https://y.qq.com"
+/// 各平台音频 CDN 校验的来源页：用哪个平台下载就用该平台的站点。
+///
+/// 没有站点映射时默认不发送 Referer，避免把请求伪装成其他平台。
+fn referer_for(platform: Platform) -> Option<&'static str> {
+    match platform {
+        Platform::QqMusic => Some("https://y.qq.com"),
+        Platform::Kugou => Some("https://www.kugou.com"),
+        Platform::Kuwo => Some("https://www.kuwo.cn"),
+        Platform::Netease => Some("https://music.163.com"),
+        Platform::Bilibili => Some("https://www.bilibili.com"),
+        Platform::Qishui => Some("https://music.douyin.com"),
     }
 }
 
@@ -40,12 +47,14 @@ pub async fn request_download_response(
     url: &str,
     downloaded: u64,
     task_id: &str,
+    platform: Platform,
 ) -> Result<reqwest::Response, reqwest::Error> {
     let mut attempt = 0;
     loop {
-        let mut request = download_client()
-            .get(url)
-            .header("Referer", referer_for(url));
+        let mut request = download_client().get(url);
+        if let Some(referer) = referer_for(platform) {
+            request = request.header("Referer", referer);
+        }
         if downloaded > 0 {
             request = request.header(RANGE, format!("bytes={downloaded}-"));
         }
@@ -373,5 +382,23 @@ mod tests {
         );
         assert_eq!(retries, 2);
         assert_eq!(sink.errors.lock().unwrap().as_slice(), ["断流"]);
+    }
+
+    #[test]
+    fn referer_matches_the_download_platform() {
+        // 用哪个平台下载就带哪个平台的来源页，不再统一伪装成 QQ 音乐。
+        for (platform, expected) in [
+            (crate::platforms::Platform::QqMusic, "https://y.qq.com"),
+            (crate::platforms::Platform::Kugou, "https://www.kugou.com"),
+            (crate::platforms::Platform::Kuwo, "https://www.kuwo.cn"),
+            (crate::platforms::Platform::Netease, "https://music.163.com"),
+            (
+                crate::platforms::Platform::Bilibili,
+                "https://www.bilibili.com",
+            ),
+            (crate::platforms::Platform::Qishui, "https://music.douyin.com"),
+        ] {
+            assert_eq!(super::referer_for(platform), Some(expected));
+        }
     }
 }

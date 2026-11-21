@@ -89,7 +89,16 @@ fn merge_cookie(left: &str, right: &str) -> String {
         .join("; ")
 }
 async fn account(cookie: &str) -> Result<Value, String> {
-    let data = api("/api/w/nuser/account/get", json!({}), cookie).await?;
+    let data = api("/api/w/nuser/account/get", json!({}), cookie)
+        .await
+        .map_err(|error| {
+            // weapi 返回 400 基本等同于会话不可用：给出可执行的指引，而不是平台原始错误。
+            if error.contains("(400)") {
+                "网易云登录已失效：请重新从浏览器复制完整 Cookie（需包含 MUSIC_U）".to_string()
+            } else {
+                error
+            }
+        })?;
     let uid = data["profile"]["userId"]
         .as_u64()
         .filter(|v| *v > 0)
@@ -163,9 +172,16 @@ pub async fn execute(
             } else {
                 let cookie = store.cookie()?;
                 validate_cookie(&cookie)?;
-                let (_, set) =
-                    request("/api/login/token/refresh", json!({}), &cookie, false).await?;
-                merge_cookie(&cookie, &set)
+                // 续期只是尽力而为：接口返回 400 或网络抖动都不代表 Cookie 失效。
+                // 真正的判定交给随后的账号校验，避免有效 Cookie 被续期失败直接判死。
+                match request("/api/login/token/refresh", json!({}), &cookie, false).await {
+                    Ok((_, set)) if !set.is_empty() => merge_cookie(&cookie, &set),
+                    Ok(_) => cookie,
+                    Err(error) => {
+                        log::warn!("网易云 Cookie 续期失败，改用原 Cookie 校验账号: {error}");
+                        cookie
+                    }
+                }
             };
             let status = account(&cookie).await?;
             let state = STATE.lock().await;
@@ -216,7 +232,9 @@ pub async fn execute(
             );
             Ok(json!({
                 "qrcode_id": session_id,
-                "qr_image": image
+                "qr_image": image,
+                // 原文链接供非浏览器客户端（如 MCP）自行渲染 PNG。
+                "qr_url": url
             }))
         }
         "check" => {

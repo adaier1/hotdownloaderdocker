@@ -14,6 +14,7 @@ use crate::download::transfer::{
     classify_http_response, request_download_response, write_response_stream, ResponseAction,
     StreamOutcome, StreamWriteContext,
 };
+use crate::platforms::Platform;
 
 /// 与 Tauri 无关的完整下载任务循环。运行时提供设置、链接、文件、状态和收尾端口。
 /// 返回任务是否成功完成，供调度器决定是否清理任务上下文。
@@ -244,7 +245,7 @@ pub async fn download_task(
         }
 
         // 请求重试、Range 头及响应校验均由核心处理；这里执行需要文件适配器的动作。
-        let response = match request_download_response(&url, downloaded, &ctx.task_id).await {
+        let response = match request_download_response(&url, downloaded, &ctx.task_id, ctx.platform).await {
             Ok(response) => response,
             Err(error) => {
                 log::error!("任务 {} 最终下载请求失败: {}", ctx.task_id, error);
@@ -359,6 +360,21 @@ pub async fn download_task(
     drop(file);
 
     // 下载成功后，根据设置决定是否写入 metadata（歌词/封面）
+    if completed_ok && ctx.platform == Platform::Qishui && !key.is_empty() {
+        // 汽水带 play_auth 的流是加密 M4A，必须在写标签前整文件解密。
+        // SAF 只能逐块写入，无法原地改文件，这里明确拒绝而不是留下坏文件。
+        let result = if is_saf {
+            Err("汽水加密音频暂不支持 SAF 下载目录".to_string())
+        } else {
+            crate::platforms::qishui::crypto::decrypt_file_in_place(&download_dir, &key).await
+        };
+        if let Err(error) = result {
+            log::error!("任务 {} 汽水解密失败: {}", ctx.task_id, error);
+            progress_sink.error(&ctx.task_id, &format!("汽水解密失败: {error}"));
+            completed_ok = false;
+        }
+    }
+
     if completed_ok {
         // 文件传输结束，先通知 Rust 任务状态进入 processing，再执行收尾处理。
         progress_sink.file_complete(&ctx.task_id);

@@ -71,7 +71,7 @@ pub fn is_auth_error(platform: Platform, error: &str) -> bool {
                         .iter()
                         .any(|word| text.contains(word))))
         }
-        Platform::Kuwo | Platform::Bilibili => false,
+        Platform::Kuwo | Platform::Bilibili | Platform::Qishui => false,
     }
 }
 
@@ -167,7 +167,7 @@ pub async fn check(
                 Err(_) => Err("酷狗音乐登录状态检查失败，请稍后重试".into()),
             }
         }
-        Platform::Kuwo | Platform::Bilibili => Err("该平台暂不支持登录".into()),
+        Platform::Kuwo | Platform::Bilibili | Platform::Qishui => Err("该平台暂不支持登录".into()),
     }
 }
 

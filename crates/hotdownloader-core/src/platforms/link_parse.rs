@@ -9,7 +9,7 @@ use std::time::Duration;
 use once_cell::sync::Lazy;
 use regex::Regex;
 
-use super::{bilibili, kugou, kuwo, netease, qqmusic, Platform};
+use super::{bilibili, kugou, kuwo, netease, qishui, qqmusic, Platform};
 
 /// 分享链接指向的内容类型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,7 +49,7 @@ static URL_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r#"https?://[^\s<>"'）】」》，。！？、]+"#).expect("分享链接正则编译失败")
 });
 
-const UNSUPPORTED: &str = "暂不支持该链接，目前支持网易云、QQ 音乐、酷狗、酷我";
+const UNSUPPORTED: &str = "暂不支持该链接，目前支持网易云、QQ 音乐、酷狗、酷我、汽水";
 
 /// 从整段分享文案中取出第一个链接。
 pub fn extract_url(text: &str) -> Option<&str> {
@@ -69,6 +69,11 @@ pub fn detect_platform(url: &str) -> Option<Platform> {
         _ if host.ends_with(".kugou.com") => Platform::Kugou,
         _ if host.ends_with(".kuwo.cn") => Platform::Kuwo,
         _ if host.ends_with("bilibili.com") || host == "b23.tv" => Platform::Bilibili,
+        // 汽水的分享短链与抖音主站同域，只认 qishui 子域和 /qishui/ 分享页。
+        _ if bare == "qishui.douyin.com" => Platform::Qishui,
+        _ if bare == "music.douyin.com" && url.to_ascii_lowercase().contains("/qishui/") => {
+            Platform::Qishui
+        }
         _ => return None,
     })
 }
@@ -106,6 +111,17 @@ pub fn detect_kind(platform: Platform, url: &str) -> LinkKind {
         ),
         // B 站只有视频：BV 号本身就是单曲，短链（b23.tv）展开后同样是视频。
         Platform::Bilibili => LinkKind::Song,
+        // 汽水分享短链离线无法区分单曲与歌单，统一按单曲处理：
+        // 单曲占分享的绝大多数，歌单会在取 ID 时给出明确错误。
+        Platform::Qishui => {
+            if route.contains("/share/playlist") || route.contains("playlist_id") {
+                LinkKind::Playlist
+            } else if route.contains("/share/album") {
+                LinkKind::Album
+            } else {
+                LinkKind::Song
+            }
+        }
     }
 }
 
@@ -159,6 +175,7 @@ pub async fn fetch(
                 Platform::Kuwo => kuwo::album::fetch_album_songs(separator, id).await,
                 // B 站没有专辑概念。
                 Platform::Bilibili => Err("B 站链接不支持专辑解析".to_string()),
+                Platform::Qishui => Err("汽水链接暂不支持专辑解析".to_string()),
             }
         }
         // 歌单接口本身就接受链接，短链展开也由它内部完成。
@@ -191,8 +208,12 @@ async fn fetch_song(
     netease_cookie: &str,
     qq_auth: Option<&super::qqmusic::credentials::QqAuth>,
 ) -> Result<String, String> {
-    let id = song_id(link.platform, &link.url)
-        .ok_or_else(|| "未能从歌曲链接中提取歌曲 ID".to_string())?;
+    // 汽水短链需要跟随跳转并从落地页取 ID，其余平台的标识都能离线解析。
+    let id = match link.platform {
+        Platform::Qishui => qishui::song::resolve_track_id(&link.url).await?,
+        _ => song_id(link.platform, &link.url)
+            .ok_or_else(|| "未能从歌曲链接中提取歌曲 ID".to_string())?,
+    };
     // QQ 分享链接里常同时出现歌曲、专辑、MV 等多个 14 位串，取错会得到 code=400；
     // 按可信度逐个尝试，第一个能解析的即采用。
     let candidates = match link.platform {
@@ -222,6 +243,7 @@ async fn fetch_song(
             Platform::Kugou => kugou::song::fetch_song_detail(separator, &candidate).await,
             Platform::Kuwo => kuwo::song::fetch_song_detail(separator, &candidate).await,
             Platform::Bilibili => bilibili::song::fetch_song_detail(&candidate).await,
+            Platform::Qishui => qishui::song::fetch_song_detail(separator, &candidate).await,
         };
         match result {
             Ok(raw) => return finalize_song(link, &raw),
@@ -283,6 +305,8 @@ async fn fetch_playlist(
         Platform::Kuwo => kuwo::playlist::fetch_playlist_songs(separator, url).await,
         // B 站的合集/收藏夹不在支持范围。
         Platform::Bilibili => Err("B 站链接不支持歌单解析".to_string()),
+        // 汽水歌单分享链接当前不展开，只支持单曲。
+        Platform::Qishui => Err("汽水链接暂不支持歌单解析".to_string()),
     }
 }
 
@@ -378,6 +402,7 @@ fn allowed_redirect(url: &reqwest::Url) -> bool {
                 "kuwo.cn",
                 "bilibili.com",
                 "b23.tv",
+                "douyin.com",
             ]
             .iter()
             .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
@@ -480,6 +505,8 @@ fn song_id(platform: Platform, url: &str) -> Option<String> {
             .or_else(|| trailing_id(path)),
         // B 站的标识是 BV / av 号，可能出现在路径里，也可能只是整段文案中的一段。
         Platform::Bilibili => super::bilibili::video_id(url),
+        // 汽水只用 19 位曲目 ID；短链需要联网展开，由 `fetch_song` 单独处理。
+        Platform::Qishui => super::qishui::track_id_from_text(url),
     }
 }
 
@@ -503,6 +530,7 @@ fn album_id(platform: Platform, url: &str) -> Option<String> {
                 Platform::Kuwo => segment_after(path, "album_detail"),
                 Platform::Netease => unreachable!("网易云已在上一分支处理"),
                 Platform::Bilibili => None,
+                Platform::Qishui => None,
             }
         }
     }

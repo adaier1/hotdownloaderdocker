@@ -17,7 +17,12 @@ use hyper::body::Incoming;
 use hyper::{Method, Request, Response, StatusCode};
 use serde_json::{json, Value};
 
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine as _;
+use hotdownloader_core::platforms::kugou::login as kugou_login;
+use hotdownloader_core::platforms::netease::login as netease_login;
 use hotdownloader_core::platforms::qqmusic::login as qq_login;
+use hotdownloader_core::platforms::qqmusic::login::LoginCredentialStore;
 use hotdownloader_core::settings::patch::{SettingsPatch, SettingsPatchError};
 use hotdownloader_core::task::contract::CreateTaskRequest;
 use hotdownloader_core::task::service::TaskService;
@@ -56,13 +61,20 @@ pub async fn handle(request: Request<Incoming>, runtime: Arc<ServerRuntime>) -> 
         return error_response(StatusCode::UNAUTHORIZED, "访问凭据无效");
     }
 
+    // 扫码登录要把图片地址返回给客户端，用请求自身的 Host 拼出可直接访问的地址。
+    let origin = request
+        .headers()
+        .get("host")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| !value.is_empty())
+        .map(|host| format!("http://{host}"));
+
     let message = match read_json(request).await {
         Ok(value) => value,
         Err(error) => return error_response(StatusCode::BAD_REQUEST, error),
     };
 
-    match handle_message(runtime, message).await {
-        Some(response) => json_response(StatusCode::OK, response),
+    match handle_message(runtime, message, origin).await {        Some(response) => json_response(StatusCode::OK, response),
         // 通知类消息无需响应，按 MCP 规范返回 202 且不带正文。
         None => Response::builder()
             .status(StatusCode::ACCEPTED)
@@ -72,7 +84,11 @@ pub async fn handle(request: Request<Incoming>, runtime: Arc<ServerRuntime>) -> 
 }
 
 /// 处理单条 JSON-RPC 消息；无 `id` 的通知返回 `None`。
-async fn handle_message(runtime: Arc<ServerRuntime>, message: Value) -> Option<Value> {
+async fn handle_message(
+    runtime: Arc<ServerRuntime>,
+    message: Value,
+    origin: Option<String>,
+) -> Option<Value> {
     let id = message.get("id").cloned()?;
     let method = message
         .get("method")
@@ -84,7 +100,7 @@ async fn handle_message(runtime: Arc<ServerRuntime>, message: Value) -> Option<V
         "initialize" => Ok(initialize_result(&params)),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tool_definitions() })),
-        "tools/call" => call_tool(&runtime, &params).await,
+        "tools/call" => call_tool(&runtime, &params, origin.as_deref()).await,
         // 未声明对应能力，返回空列表以便客户端探测。
         "resources/list" => Ok(json!({ "resources": [] })),
         "prompts/list" => Ok(json!({ "prompts": [] })),
@@ -111,13 +127,17 @@ fn initialize_result(params: &Value) -> Value {
         "protocolVersion": requested,
         "capabilities": { "tools": { "listChanged": false } },
         "serverInfo": { "name": "hotdownloader", "version": env!("CARGO_PKG_VERSION") },
-        "instructions": "HotDownloader 音乐下载服务：可搜索歌曲/歌单/专辑/歌手、获取歌词、创建与管理下载任务、读写设置，以及管理曲库（列出/删除/重命名下载目录中的音频文件并写入标签）。"
+        "instructions": "HotDownloader 音乐下载服务：可搜索歌曲/歌单/专辑/歌手、获取歌词、创建与管理下载任务、读写设置、管理账号登录（生成扫码二维码并在聊天里转发、轮询扫码结果、写入 Cookie/凭据、登出），以及管理曲库（列出/删除/重命名下载目录中的音频文件并写入标签）。扫码流程：start_qr_login 拿到二维码图片与 sessionId → 把图片发给用户扫码 → 每 2 秒 check_qr_login 直到 done。"
     })
 }
 
 // ==================== 工具分发 ====================
 
-async fn call_tool(runtime: &Arc<ServerRuntime>, params: &Value) -> Result<Value, (i64, String)> {
+async fn call_tool(
+    runtime: &Arc<ServerRuntime>,
+    params: &Value,
+    origin: Option<&str>,
+) -> Result<Value, (i64, String)> {
     let name = params
         .get("name")
         .and_then(|value| value.as_str())
@@ -150,6 +170,16 @@ async fn call_tool(runtime: &Arc<ServerRuntime>, params: &Value) -> Result<Value
         "patch_settings" => patch_settings(runtime, args),
         "get_default_download_dir" => Ok(json!(runtime.environment.default_download_dir())),
         "get_login_status" => get_login_status(runtime).await,
+        // 账号：状态、扫码登录、Cookie 写入、凭据登录、登出
+        "list_accounts" => list_accounts(runtime).await,
+        "start_qr_login" => match start_qr_login(runtime, args, origin).await {
+            Ok((value, png)) => return Ok(tool_result_with_image(&value.to_string(), &png)),
+            Err(error) => return Ok(tool_result(&error, true)),
+        },
+        "check_qr_login" => check_qr_login(runtime, args).await,
+        "save_cookie" => save_cookie(runtime, args).await,
+        "login_with_credentials" => login_with_credentials(runtime, args).await,
+        "logout_account" => logout_account(runtime, args).await,
         // 曲库（下载目录）
         "list_library" => list_library(runtime, args),
         "delete_library_files" => delete_library_files(runtime, args),
@@ -248,6 +278,398 @@ async fn get_login_status(runtime: &ServerRuntime) -> Result<Value, String> {
     serde_json::from_str(&result).map_err(|error| error.to_string())
 }
 
+// ==================== 账号（扫码登录 / Cookie 写入 / 登出） ====================
+
+fn platform_arg(args: &Value) -> Result<String, String> {
+    args.get("platform")
+        .and_then(Value::as_str)
+        .map(|value| value.trim().to_lowercase())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "缺少 platform（qqmusic / netease / kugou / qishui）".to_string())
+}
+
+fn platform_label(platform: &str) -> &'static str {
+    match platform {
+        "qqmusic" => "QQ 音乐",
+        "netease" => "网易云音乐",
+        "kugou" => "酷狗音乐",
+        "qishui" => "汽水音乐",
+        _ => "未知平台",
+    }
+}
+
+fn text_field(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+}
+
+fn required_text(args: &Value, key: &str) -> Result<String, String> {
+    text_field(args, key).ok_or_else(|| format!("缺少 {key}"))
+}
+
+fn account_entry(
+    platform: &str,
+    logged_in: bool,
+    account: &str,
+    supports_qr: bool,
+    supports_cookie: bool,
+    note: Option<String>,
+) -> Value {
+    json!({
+        "platform": platform,
+        "platformName": platform_label(platform),
+        "loggedIn": logged_in,
+        "account": account,
+        "supportsQrLogin": supports_qr,
+        "supportsCookieLogin": supports_cookie,
+        "note": note,
+    })
+}
+
+/// 四个平台的登录概览。任何一个平台的网络异常都只影响它自己那一行。
+async fn list_accounts(runtime: &Arc<ServerRuntime>) -> Result<Value, String> {
+    let mut accounts = Vec::with_capacity(4);
+
+    let qq = qq_login::get_login_status(runtime.login_store.as_ref())
+        .await
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).map_err(|error| error.to_string()));
+    accounts.push(match qq {
+        Ok(value) => account_entry(
+            "qqmusic",
+            value["logged_in"].as_bool().unwrap_or(false),
+            value["uin"].as_str().unwrap_or(""),
+            true,
+            false,
+            None,
+        ),
+        Err(error) => account_entry("qqmusic", false, "", true, false, Some(error)),
+    });
+
+    let netease = netease_login::execute(runtime.netease_store.as_ref(), "status", "", None).await;
+    accounts.push(match netease {
+        Ok(value) => {
+            let nickname = value["nickname"].as_str().unwrap_or("");
+            let userid = value["userid"].as_str().unwrap_or("");
+            let account = if nickname.is_empty() { userid } else { nickname };
+            account_entry(
+                "netease",
+                value["logged_in"].as_bool().unwrap_or(false),
+                account,
+                true,
+                true,
+                None,
+            )
+        }
+        Err(error) => account_entry("netease", false, "", true, true, Some(error)),
+    });
+
+    let kugou = kugou_login::execute(runtime.kugou_store.as_ref(), "status", "", None).await;
+    accounts.push(match kugou {
+        Ok(value) => account_entry(
+            "kugou",
+            value["logged_in"].as_bool().unwrap_or(false),
+            value["userid"].as_str().unwrap_or(""),
+            true,
+            false,
+            None,
+        ),
+        Err(error) => account_entry("kugou", false, "", true, false, Some(error)),
+    });
+
+    match runtime.qishui_store.status() {
+        Ok(status) => accounts.push(account_entry(
+            "qishui",
+            status.configured,
+            &status.keys,
+            false,
+            true,
+            Some(if status.configured {
+                format!("Cookie 已配置（{} 字符）", status.length)
+            } else {
+                "未配置 Cookie，接口按匿名请求处理：搜索不可用".into()
+            }),
+        )),
+        Err(error) => accounts.push(account_entry("qishui", false, "", false, true, Some(error))),
+    }
+
+    Ok(json!({ "accounts": accounts }))
+}
+
+fn write_qr_image(
+    runtime: &ServerRuntime,
+    platform: &str,
+    png: &[u8],
+) -> Result<String, String> {
+    let directory = runtime.data_dir.join("qr");
+    std::fs::create_dir_all(&directory).map_err(|error| format!("创建二维码目录失败: {error}"))?;
+    // 每个平台固定一个文件名，重复扫码只覆盖旧图，不会堆积过期图片。
+    let path = directory.join(format!("{platform}.png"));
+    std::fs::write(&path, png).map_err(|error| format!("写入二维码图片失败: {error}"))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// 生成扫码登录二维码；返回可直接转发的 PNG 与轮询所需会话 ID。
+async fn start_qr_login(
+    runtime: &Arc<ServerRuntime>,
+    args: Value,
+    origin: Option<&str>,
+) -> Result<(Value, Vec<u8>), String> {
+    let platform = platform_arg(&args)?;
+    let (session_id, png, expires) = match platform.as_str() {
+        "qqmusic" => {
+            let store: Arc<dyn LoginCredentialStore> = runtime.login_store.clone();
+            let raw = qq_login::create_qr_login(store).await?;
+            let value: Value = serde_json::from_str(&raw)
+                .map_err(|error| format!("解析二维码响应失败: {error}"))?;
+            let session_id = value["qrcode_id"].as_str().unwrap_or_default().to_string();
+            if session_id.is_empty() {
+                return Err("QQ 音乐未返回二维码会话".into());
+            }
+            // QQ 直接返回 PNG 的 base64，无需重新渲染。
+            let encoded = value["qr_base64"].as_str().unwrap_or_default().trim();
+            let png = STANDARD
+                .decode(encoded)
+                .map_err(|error| format!("二维码图片解码失败: {error}"))?;
+            (session_id, png, 180u64)
+        }
+        "netease" => {
+            let value =
+                netease_login::execute(runtime.netease_store.as_ref(), "qr", "", None).await?;
+            let session_id = value["qrcode_id"]
+                .as_str()
+                .ok_or("网易云未返回二维码会话")?
+                .to_string();
+            let url = value["qr_url"].as_str().ok_or("网易云未返回二维码链接")?;
+            (session_id, crate::qr::png_for_text(url)?, 180u64)
+        }
+        "kugou" => {
+            let value = kugou_login::execute(runtime.kugou_store.as_ref(), "qr", "", None).await?;
+            let session_id = value["qrcode_id"]
+                .as_str()
+                .ok_or("酷狗未返回二维码会话")?
+                .to_string();
+            let url = value["qr_url"].as_str().ok_or("酷狗未返回二维码链接")?;
+            (session_id, crate::qr::png_for_text(url)?, 300u64)
+        }
+        "qishui" => {
+            return Err("汽水音乐没有扫码登录：请让用户在浏览器复制 Cookie，再用 save_cookie 写入".into())
+        }
+        other => return Err(format!("该平台不支持扫码登录: {other}")),
+    };
+
+    let image_path = write_qr_image(runtime, &platform, &png)?;
+    let image_url = origin.map(|base| format!("{base}/api/login/qr-image/{platform}.png"));
+    let label = platform_label(&platform);
+    let value = json!({
+        "platform": platform,
+        "platformName": label,
+        "sessionId": session_id,
+        "expiresInSeconds": expires,
+        "imagePath": image_path,
+        "imageUrl": image_url,
+        "nextStep": "把二维码图片发给用户用手机 App 扫码（图片已随结果返回，也可按 imageUrl 用同样的认证头取回）；随后每 2 秒调用 check_qr_login，platform 与 sessionId 保持不变，直到 status 变为 confirmed / expired",
+    });
+    Ok((value, png))
+}
+
+/// 轮询扫码状态；确认后把凭据落库，之后搜索与下载才会带上登录态。
+async fn check_qr_login(runtime: &ServerRuntime, args: Value) -> Result<Value, String> {
+    let platform = platform_arg(&args)?;
+    let session_id = required_text(&args, "sessionId")?;
+
+    let (status, account, saved) = match platform.as_str() {
+        "qqmusic" => {
+            let raw = qq_login::check_qr_login(session_id.clone()).await?;
+            let value: Value = serde_json::from_str(&raw)
+                .map_err(|error| format!("解析扫码状态失败: {error}"))?;
+            let status = value["status"].as_str().unwrap_or("unknown").to_string();
+            let mut account = json!({});
+            let mut saved = false;
+            if status == "confirmed" {
+                let credentials = &value["credentials"];
+                let uin = text_field(credentials, "uin").unwrap_or_default();
+                let authst = text_field(credentials, "authst").unwrap_or_default();
+                if uin.is_empty() || authst.is_empty() {
+                    return Err("QQ 音乐返回的登录凭据不完整".into());
+                }
+                // 扫码接口只回传凭据，必须写盘后下载与解析才会使用登录态；
+                // 结果里不带任何令牌，避免凭据进入对话记录。
+                qq_login::login_with_uin_authst(
+                    runtime.login_store.as_ref(),
+                    uin.clone(),
+                    authst,
+                    text_field(credentials, "refreshToken"),
+                    text_field(credentials, "refreshKey"),
+                    text_field(credentials, "accessToken"),
+                    text_field(credentials, "openid"),
+                )
+                .await?;
+                account = json!({ "uin": uin });
+                saved = true;
+            }
+            (status, account, saved)
+        }
+        "netease" => {
+            let value =
+                netease_login::execute(runtime.netease_store.as_ref(), "check", &session_id, None)
+                    .await?;
+            let status = value["status"].as_str().unwrap_or("unknown").to_string();
+            let account = json!({
+                "userid": value["userid"].as_str().unwrap_or(""),
+                "nickname": value["nickname"].as_str().unwrap_or(""),
+            });
+            (status.clone(), account, status == "confirmed")
+        }
+        "kugou" => {
+            let value =
+                kugou_login::execute(runtime.kugou_store.as_ref(), "check", &session_id, None)
+                    .await?;
+            let status = value["status"].as_str().unwrap_or("unknown").to_string();
+            let account = json!({ "userid": value["userid"].as_str().unwrap_or("") });
+            (status.clone(), account, status == "confirmed")
+        }
+        "qishui" => return Err("汽水音乐没有扫码登录，请改用 save_cookie".into()),
+        other => return Err(format!("该平台不支持扫码登录: {other}")),
+    };
+
+    let label = platform_label(&platform);
+    Ok(json!({
+        "platform": platform,
+        "platformName": label,
+        "sessionId": session_id,
+        "status": status,
+        "account": account,
+        "saved": saved,
+        // confirmed 之后不必再轮询；expired 需要重新取码。
+        "done": matches!(status.as_str(), "confirmed" | "expired" | "canceled" | "error"),
+    }))
+}
+
+/// 直接写入 Cookie：网易云走校验接口，汽水只做格式校验后落盘。
+async fn save_cookie(runtime: &ServerRuntime, args: Value) -> Result<Value, String> {
+    let platform = platform_arg(&args)?;
+    let cookie = required_text(&args, "cookie")?;
+    let label = platform_label(&platform);
+
+    match platform.as_str() {
+        "netease" => {
+            let status = netease_login::execute(
+                runtime.netease_store.as_ref(),
+                "manual",
+                "",
+                Some(netease_login::ManualCredentials { cookie }),
+            )
+            .await?;
+            Ok(json!({
+                "platform": platform,
+                "platformName": label,
+                "loggedIn": status["logged_in"].as_bool().unwrap_or(false),
+                "account": {
+                    "userid": status["userid"].as_str().unwrap_or(""),
+                    "nickname": status["nickname"].as_str().unwrap_or(""),
+                },
+            }))
+        }
+        "qishui" => {
+            let status = runtime.qishui_store.save_cookie(&cookie)?;
+            Ok(json!({
+                "platform": platform,
+                "platformName": label,
+                "loggedIn": status.configured,
+                "length": status.length,
+                "keys": status.keys,
+            }))
+        }
+        _ => Err("只有网易云与汽水支持直接写 Cookie：QQ 用扫码或 login_with_credentials，酷狗用 login_with_credentials".into()),
+    }
+}
+
+/// 用现成凭据登录：QQ 需要 uin + authst，酷狗需要 userid + token。
+async fn login_with_credentials(runtime: &ServerRuntime, args: Value) -> Result<Value, String> {
+    let platform = platform_arg(&args)?;
+    let label = platform_label(&platform);
+    match platform.as_str() {
+        "qqmusic" => {
+            let uin = required_text(&args, "uin")?;
+            let authst = required_text(&args, "authst")?;
+            let raw = qq_login::login_with_uin_authst(
+                runtime.login_store.as_ref(),
+                uin.clone(),
+                authst,
+                text_field(&args, "refreshToken"),
+                text_field(&args, "refreshKey"),
+                text_field(&args, "accessToken"),
+                text_field(&args, "openid"),
+            )
+            .await?;
+            // 返回体里含令牌，这里只确认账号，不回显凭据。
+            let value: Value = serde_json::from_str(&raw).unwrap_or_else(|_| json!({}));
+            Ok(json!({
+                "platform": platform,
+                "platformName": label,
+                "loggedIn": true,
+                "account": { "uin": value["uin"].as_str().unwrap_or(&uin) },
+            }))
+        }
+        "kugou" => {
+            let status = kugou_login::execute(
+                runtime.kugou_store.as_ref(),
+                "manual",
+                "",
+                Some(kugou_login::ManualCredentials {
+                    userid: required_text(&args, "userid")?,
+                    token: required_text(&args, "token")?,
+                    mid: text_field(&args, "mid").unwrap_or_default(),
+                    dfid: text_field(&args, "dfid").unwrap_or_default(),
+                }),
+            )
+            .await?;
+            Ok(json!({
+                "platform": platform,
+                "platformName": label,
+                "loggedIn": status["logged_in"].as_bool().unwrap_or(false),
+                "account": { "userid": status["userid"].as_str().unwrap_or("") },
+            }))
+        }
+        _ => Err("该平台不支持凭据登录：网易云与汽水请用 save_cookie".into()),
+    }
+}
+
+async fn logout_account(runtime: &ServerRuntime, args: Value) -> Result<Value, String> {
+    let platform = platform_arg(&args)?;
+    let label = platform_label(&platform);
+    match platform.as_str() {
+        "qqmusic" => qq_login::logout(runtime.login_store.as_ref()).await?,
+        "netease" => {
+            netease_login::execute(runtime.netease_store.as_ref(), "logout", "", None).await?;
+        }
+        "kugou" => {
+            kugou_login::execute(runtime.kugou_store.as_ref(), "logout", "", None).await?;
+        }
+        "qishui" => runtime.qishui_store.clear()?,
+        other => return Err(format!("未知平台: {other}")),
+    }
+    Ok(json!({
+        "platform": platform,
+        "platformName": label,
+        "loggedIn": false,
+    }))
+}
+
+fn tool_result_with_image(text: &str, png: &[u8]) -> Value {
+    json!({
+        "content": [
+            { "type": "text", "text": text },
+            { "type": "image", "data": STANDARD.encode(png), "mimeType": "image/png" },
+        ],
+        "isError": false,
+    })
+}
+
 // ==================== 曲库（下载目录） ====================
 
 /// 曲库操作统一作用于服务端下载目录。
@@ -336,7 +758,29 @@ fn tool(name: &str, description: &str, input_schema: Value) -> Value {
 }
 
 fn platform_schema() -> Value {
-    json!({ "type": "string", "enum": ["qqmusic", "kuwo"], "description": "音乐平台" })
+    json!({
+        "type": "string",
+        "enum": ["qqmusic", "kuwo", "kugou", "netease", "qishui"],
+        "description": "音乐平台"
+    })
+}
+
+/// 账号相关平台：只覆盖有登录态的平台。
+fn account_platform_schema() -> Value {
+    json!({
+        "type": "string",
+        "enum": ["qqmusic", "netease", "kugou", "qishui"],
+        "description": "账号所属平台"
+    })
+}
+
+/// 能扫码登录的三个平台；汽水只有 Cookie。
+fn qr_platform_schema() -> Value {
+    json!({
+        "type": "string",
+        "enum": ["qqmusic", "netease", "kugou"],
+        "description": "扫码登录的平台；汽水音乐请改用 save_cookie"
+    })
 }
 
 fn paged_keyword_schema() -> Value {
@@ -512,6 +956,74 @@ fn tool_definitions() -> Vec<Value> {
             json!({ "type": "object", "properties": {} }),
         ),
         tool("get_login_status", "获取 QQ 音乐登录状态。", json!({ "type": "object", "properties": {} })),
+        tool(
+            "list_accounts",
+            "列出 QQ 音乐 / 网易云 / 酷狗 / 汽水的登录状态、账号与可用登录方式。",
+            json!({ "type": "object", "properties": {} }),
+        ),
+        tool(
+            "start_qr_login",
+            "生成扫码登录二维码：结果同时返回 PNG 图片内容（可直接转发给用户扫）与 sessionId、imagePath/imageUrl。拿到后用 check_qr_login 轮询。汽水音乐不支持扫码。",
+            json!({
+                "type": "object",
+                "properties": { "platform": qr_platform_schema() },
+                "required": ["platform"]
+            }),
+        ),
+        tool(
+            "check_qr_login",
+            "查询扫码状态（waiting 待扫 / scanned 已扫待确认 / confirmed 已登录 / expired 已过期）。confirmed 时凭据自动写入，无需再手工保存；建议每 2 秒轮询一次，done 为 true 时停止。",
+            json!({
+                "type": "object",
+                "properties": {
+                    "platform": qr_platform_schema(),
+                    "sessionId": { "type": "string", "description": "start_qr_login 返回的会话 ID" }
+                },
+                "required": ["platform", "sessionId"]
+            }),
+        ),
+        tool(
+            "save_cookie",
+            "把浏览器复制的 Cookie 写入网易云或汽水（立即生效）。汽水未配置 Cookie 时搜索不可用。",
+            json!({
+                "type": "object",
+                "properties": {
+                    "platform": json!({ "type": "string", "enum": ["netease", "qishui"], "description": "目标平台" }),
+                    "cookie": { "type": "string", "description": "完整 Cookie 单行文本，可带 Cookie: 前缀（汽水）" }
+                },
+                "required": ["platform", "cookie"]
+            }),
+        ),
+        tool(
+            "login_with_credentials",
+            "用现成凭据登录：QQ 音乐需要 uin + authst（可选 refreshToken/refreshKey/accessToken/openid），酷狗需要 userid + token（可选 mid/dfid）。",
+            json!({
+                "type": "object",
+                "properties": {
+                    "platform": json!({ "type": "string", "enum": ["qqmusic", "kugou"], "description": "目标平台" }),
+                    "uin": { "type": "string", "description": "QQ 音乐：QQ 号" },
+                    "authst": { "type": "string", "description": "QQ 音乐：authst 令牌" },
+                    "refreshToken": { "type": "string" },
+                    "refreshKey": { "type": "string" },
+                    "accessToken": { "type": "string" },
+                    "openid": { "type": "string" },
+                    "userid": { "type": "string", "description": "酷狗：userid" },
+                    "token": { "type": "string", "description": "酷狗：token" },
+                    "mid": { "type": "string", "description": "酷狗：设备 mid（可选）" },
+                    "dfid": { "type": "string", "description": "酷狗：设备 dfid（可选）" }
+                },
+                "required": ["platform"]
+            }),
+        ),
+        tool(
+            "logout_account",
+            "退出指定平台登录：QQ / 网易云 / 酷狗清除凭据，汽水清除 Cookie。",
+            json!({
+                "type": "object",
+                "properties": { "platform": account_platform_schema() },
+                "required": ["platform"]
+            }),
+        ),
         tool(
             "list_library",
             "列出下载目录（曲库）中的音频文件，可按文件名关键词过滤并分页。",

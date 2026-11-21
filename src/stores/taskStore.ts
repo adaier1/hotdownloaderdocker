@@ -130,8 +130,9 @@ export const useTaskStore = defineStore('tasks', () => {
             connection(status) {
                 const previous = connectionStatus.value
                 connectionStatus.value = status
-                // 只记录真正的状态切换，重连过程中的抖动不写日志。
-                if (status === 'disconnected' && previous === 'connected') {
+                // 只记录真正的状态切换：退订（页面卸载/重新登录）不会产生日志，
+                // 断线以 reconnecting 表示，重连过程中的抖动不重复写。
+                if (status === 'reconnecting' && previous === 'connected') {
                     logStore.push({
                         level: 'warn',
                         scope: 'system',
@@ -165,26 +166,32 @@ export const useTaskStore = defineStore('tasks', () => {
                     // 只在状态变化时提醒，下载进度事件不会反复弹通知。
                     if (previous && previous.status !== task.status) {
                         if (task.status === 'completed') {
-                            logStore.push({
-                                level: 'success',
-                                scope: 'download',
-                                title: `下载完成 · ${task.songTitle}`,
-                                detail: `${task.artist || '未知歌手'} · ${task.quality}${task.filePath ? ` · ${task.filePath}` : ''}`,
-                                platform: task.platform,
-                            })
+                            // Web 端由服务端写入日志（同一批任务多标签页只留一条），
+                            // 桌面端没有独立服务，仍在页面侧记录。
+                            if (isNativeRuntime()) {
+                                logStore.push({
+                                    level: 'success',
+                                    scope: 'download',
+                                    title: `下载完成 · ${task.songTitle}`,
+                                    detail: `${task.artist || '未知歌手'} · ${task.quality}${task.filePath ? ` · ${task.filePath}` : ''}`,
+                                    platform: task.platform,
+                                })
+                            }
                             window.$notify?.success({
                                 title: '下载完成',
                                 description: `歌曲“${task.songTitle}”已下载完成`,
                                 duration: 3000,
                             })
                         } else if (task.status === 'error') {
-                            logStore.push({
-                                level: 'error',
-                                scope: 'download',
-                                title: `下载失败 · ${task.songTitle}`,
-                                detail: `${task.artist || '未知歌手'} · ${task.errorMsg?.trim() || '未知原因'}`,
-                                platform: task.platform,
-                            })
+                            if (isNativeRuntime()) {
+                                logStore.push({
+                                    level: 'error',
+                                    scope: 'download',
+                                    title: `下载失败 · ${task.songTitle}`,
+                                    detail: `${task.artist || '未知歌手'} · ${task.errorMsg?.trim() || '未知原因'}`,
+                                    platform: task.platform,
+                                })
+                            }
                             window.$notify?.error({
                                 title: '下载失败',
                                 description: `歌曲“${task.songTitle}”错误：${(task.errorMsg || '').slice(0, 100)}`,
@@ -202,13 +209,16 @@ export const useTaskStore = defineStore('tasks', () => {
             // 元数据写入失败不等于文件下载失败，保留独立的提示事件。
             metadataError(error) {
                 const task = tasks.value.find(t => t.id === error.task_id)
-                logStore.push({
-                    level: 'warn',
-                    scope: 'download',
-                    title: `元数据写入失败 · ${task?.songTitle ?? error.task_id}`,
-                    detail: error.error_msg,
-                    platform: task?.platform,
-                })
+                // 服务端已把这条写入运行日志，Web 端重复提交会出现两条。
+                if (isNativeRuntime()) {
+                    logStore.push({
+                        level: 'warn',
+                        scope: 'download',
+                        title: `元数据写入失败 · ${task?.songTitle ?? error.task_id}`,
+                        detail: error.error_msg,
+                        platform: task?.platform,
+                    })
+                }
                 window.$notify?.warning({
                     title: '元数据写入失败',
                     description: `歌曲“${task?.songTitle ?? error.task_id}”元数据写入失败：${error.error_msg}`,
@@ -227,6 +237,13 @@ export const useTaskStore = defineStore('tasks', () => {
                     description: message,
                     duration: 5000,
                 })
+            },
+            // 服务端写入的运行日志（下载完成/失败等）：日志页与其他设备看到同一份流水。
+            log(entry) {
+                logStore.applyRemote(entry)
+            },
+            logsCleared() {
+                logStore.applyCleared()
             },
         })
     }

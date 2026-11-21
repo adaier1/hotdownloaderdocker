@@ -25,6 +25,7 @@ Rust 服务同时托管 Web 页面与 API，浏览器只访问一个端口，无
         │    ├── /api/music/*  → 搜索/歌单/专辑/歌手/歌词
         │    ├── /api/tasks*   → 任务创建/暂停/恢复/删除/重试
         │    ├── /api/settings → 设置（字段级合并）
+        │    ├── /api/logs     → 运行日志（服务端）
         │    ├── /api/login/*  → 扫码/手动登录
         │    ├── /api/events   → SSE 任务/设置实时推送
         │    └── /healthz      → 健康检查
@@ -53,9 +54,10 @@ Rust 服务同时托管 Web 页面与 API，浏览器只访问一个端口，无
 
 ## 🆕 界面与交互更新
 
+- **接入汽水音乐**：粘贴单曲分享链接（含 `qishui.douyin.com` 短链）即可解析歌名、封面、逐字歌词并下载 320k / 128k / 64k AAC；会员曲目匿名只下发 60 秒试听（解析页会明确提示），关键词搜索需在「账号设置 → 汽水音乐」填入 Cookie。
 - **全新「纸面」视觉**：暖灰画布 + 纯白卡片 + 近黑主操作，统一圆角、细描边与等宽数字，去掉花哨渐变。
 - **总览页重做**：四格关键指标、近 7 天完成/失败趋势细柱图、最近下载列表与曲库构成。
-- **独立日志页**：解析、下载、账号、连接事件统一留痕，可按「解析 / 下载 / 仅失败」筛选，**只保留最近 200 条**，超出自动丢弃；日志保存在本机，不写服务端。
+- **独立日志页**：解析、下载、账号、连接事件统一留痕，可按「解析 / 下载 / 仅失败」筛选，**只保留最近 200 条**，超出自动丢弃；日志由服务端环形缓冲保存到 `/data/logs.json`，换设备、清缓存或更换访问端口后仍在（桌面端没有独立服务，仍写本机）。
 - **任务列表最新在前**：新加入的任务永远排在列表顶部，各状态标签一致生效。
 - **下载不再打断操作**：移除「添加任务后跳转至任务页」开关，下载后停留在当前页面继续挑歌。
 - **品牌标识统一**：站点图标、侧栏与登录页统一为 H 标记，Web 访问页重排为纸面卡片。
@@ -214,11 +216,30 @@ curl "http://127.0.0.1:8080/api/shortcut/parse?key=<密钥>&url=https%3A%2F%2Fy.
   - URL 携带密钥：`http://<主机IP>:8080/mcp?key=<密钥>`
   - 请求头：`Authorization: Basic base64(用户名:密码)`，或 `Authorization: Bearer <HOTDOWNLOADER_TOKEN>`（令牌模式）
 
-提供的工具（共 22 个）：
+提供的工具（共 32 个）：
 
 - 搜索：`search_songs`、`search_albums`、`search_artists`、`search_playlists`、`fetch_album_songs`、`fetch_artist_songs`、`fetch_artist_albums`、`fetch_playlist_songs`、`fetch_hot_keywords`、`fetch_suggestions`、`get_lyric_by_id`
 - 任务：`list_tasks`、`create_download_task`、`pause_task`、`resume_task`、`retry_task`、`remove_task`、`remove_tasks`
 - 设置：`get_settings`、`patch_settings`、`get_default_download_dir`、`get_login_status`
+- 曲库：`list_library`、`delete_library_files`、`rename_library_file`、`write_library_metadata`
+- 账号：`list_accounts`、`start_qr_login`、`check_qr_login`、`save_cookie`、`login_with_credentials`、`logout_account`
+
+### 账号：在对话里扫码登录 / 写 Cookie
+
+MCP 侧的登录流程与网页一致，但二维码是**直接作为图片返回**的，可以原样转发到聊天窗口让用户扫：
+
+1. `start_qr_login`（`platform` = `qqmusic` / `netease` / `kugou`）→ 返回 PNG 图片内容、`sessionId`、`imagePath`、`imageUrl`（`/api/login/qr-image/<platform>.png`，需与 `/mcp` 相同的认证头）。
+2. 用户用手机 App 扫码；期间每 2 秒调一次 `check_qr_login`（`platform` + `sessionId`），状态依次是 `waiting` → `scanned` → `confirmed`，`done: true` 时停止。
+3. `confirmed` 时凭据已自动写入（QQ 的扫码接口只回传令牌，MCP 负责落库），随后搜索/下载立即带登录态。
+
+其它入口：
+
+- `save_cookie`：把浏览器复制的 Cookie 直接写入网易云或汽水（汽水未配置 Cookie 时搜索不可用）。
+- `login_with_credentials`：QQ 用 `uin` + `authst`，酷狗用 `userid` + `token`，适合已经有令牌的场景。
+- `list_accounts` / `logout_account`：查看四个平台登录态、退出登录。
+
+> 二维码图片固定写在数据目录的 `qr/<platform>.png`，重复扫码只覆盖旧图；有效期约 3 分钟（酷狗 5 分钟），过期后重新调用 `start_qr_login`。
+
 
 客户端配置示例（远程 HTTP，推荐直接用设置页生成带密钥的链接）：
 

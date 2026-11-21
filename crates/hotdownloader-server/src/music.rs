@@ -203,6 +203,20 @@ pub async fn execute(
             )
             .await?
         }
+        (Platform::Qishui, "songs/search") => {
+            platforms::qishui::search::search_songs(
+                artist_separator,
+                request.keyword,
+                request.page,
+                request.limit,
+            )
+            .await?
+        }
+        // 汽水没有热搜与联想接口，返回空结果让前端保持可用。
+        (Platform::Qishui, "hot-keywords") => return Ok(Value::Array(Vec::new())),
+        (Platform::Qishui, "suggestions") => {
+            return Ok(serde_json::json!({"song": [], "singer": [], "album": [], "mv": []}))
+        }
         (Platform::QqMusic, "hot-keywords") => {
             platforms::qqmusic::suggest::fetch_hot_keywords().await?
         }
@@ -375,6 +389,9 @@ pub async fn execute(
             ));
         }
         (Platform::Kugou, "cover") => return Err("酷狗封面已包含在搜索结果中，无需单独获取".into()),
+        (Platform::Qishui, "cover") => {
+            return Err("汽水封面已包含在搜索结果中，无需单独获取".into())
+        }
         (Platform::QqMusic, "cover") => {
             return Err("QQ 音乐封面已包含在搜索结果中，无需单独获取".into());
         }
@@ -395,6 +412,11 @@ pub async fn execute(
                 platforms::kugou::lyrics::get_lyric(&request.song_mid).await?,
             )
             .map_err(|e| e.to_string())
+        }
+        // 汽水曲目 ID 超出前端 JS 安全整数，只能从字符串 mid 读取。
+        (Platform::Qishui, "lyrics") => {
+            return serde_json::to_value(platforms::qishui::lyrics::get_lyric(&request.song_mid).await?)
+                .map_err(|error| error.to_string())
         }
         _ => return Err("未知音乐操作".into()),
     };

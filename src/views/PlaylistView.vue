@@ -4,7 +4,7 @@
             <div class="page-head-main">
                 <div class="eyebrow">Parse · 解析</div>
                 <div class="page-title">解析链接</div>
-                <div class="page-sub">支持网易云、QQ 音乐、酷狗、酷我的歌单与专辑。链接或整段分享文案都可以。</div>
+                <div class="page-sub">链接或整段分享文案都可以，自动识别平台与内容类型。</div>
             </div>
         </header>
 
@@ -15,6 +15,14 @@
 
             <n-input v-model:value="input" type="textarea" :autosize="{ minRows: 3, maxRows: 6 }" :disabled="loading"
                 placeholder="把 App 里「分享 → 复制链接」的内容整段粘贴到这里" />
+
+            <!-- 支持范围写在输入框下方：粘贴前就能确认该平台解析到哪一级内容 -->
+            <div class="parse-support">
+                <span class="support-label">支持解析</span>
+                <span class="support-item"><strong>网易云音乐 / QQ 音乐 / 酷狗 / 酷我</strong>：歌单、专辑、单曲</span>
+                <span class="support-item"><strong>哔哩哔哩</strong>：视频</span>
+                <span class="support-item"><strong>汽水音乐</strong>：仅单曲</span>
+            </div>
 
             <div v-if="hint" class="parse-hint">
                 <span class="hint-dot" />
@@ -65,6 +73,9 @@
                     <div class="result-title">{{ summary.title }}</div>
                     <div v-if="summary.subtitle" class="result-sub">{{ summary.subtitle }}</div>
                     <div class="result-meta">{{ summary.meta }}</div>
+                    <div v-if="singleSong?.preview" class="parse-notice preview-notice">
+                        该曲目仅提供 60 秒试听片段
+                    </div>
                     <div v-if="loginNotice" class="parse-notice">
                         <span>{{ loginNotice }}</span>
                         <router-link to="/account" class="parse-notice-link">去账号设置登录</router-link>
@@ -350,6 +361,42 @@ watch(
     color: var(--text-tertiary);
 }
 
+.parse-support {
+    display: block;
+    margin-top: -2px;
+    font-size: 12.5px;
+    line-height: 1.9;
+    color: var(--text-tertiary);
+}
+
+.support-label {
+    display: inline-block;
+    margin-right: 8px;
+    padding: 1px 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--text-tertiary);
+    background: var(--surface-sunken);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-pill);
+    vertical-align: 1px;
+    white-space: nowrap;
+}
+
+.support-item {
+    margin-right: 14px;
+}
+
+.support-item:last-child {
+    margin-right: 0;
+}
+
+.support-item strong {
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
 .parse-hint {
     display: flex;
     align-items: center;
@@ -516,6 +563,23 @@ watch(
     font-size: 12.5px;
     line-height: 1.6;
     color: var(--warning);
+}
+
+/* 试听片段提示：会员曲目只下发 60s，下载前先说明 */
+.preview-notice {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 500;
+}
+
+.preview-notice::before {
+    content: '';
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+    flex-shrink: 0;
 }
 
 .parse-notice-link {

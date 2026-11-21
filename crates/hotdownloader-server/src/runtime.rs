@@ -26,6 +26,8 @@ use hotdownloader_core::task::state::{TaskEventSink, TaskState};
 use serde_json::Value;
 use tokio::sync::broadcast;
 
+use crate::logs::LogBuffer;
+
 /// SSE 与任务操作共用一个事件总线。发送端没有订阅者时仍照常执行任务。
 #[derive(Clone, Debug)]
 pub struct ServerEvent {
@@ -35,12 +37,14 @@ pub struct ServerEvent {
 
 pub struct ServerEvents {
     sender: broadcast::Sender<ServerEvent>,
+    /// 任务终态由服务端直接写入运行日志，不依赖是否有页面打开。
+    logs: Arc<LogBuffer>,
 }
 
 impl ServerEvents {
-    pub fn new() -> Self {
+    pub fn new(logs: Arc<LogBuffer>) -> Self {
         let (sender, _) = broadcast::channel(512);
-        Self { sender }
+        Self { sender, logs }
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<ServerEvent> {
@@ -51,18 +55,54 @@ impl ServerEvents {
         // 没有浏览器订阅是正常情况；下载任务不能依赖事件发送结果。
         let _ = self.sender.send(ServerEvent { name, data });
     }
+
+    /// 写入运行日志并推送给已打开的页面，多标签页看到的是同一条记录。
+    pub fn record(
+        &self,
+        level: &str,
+        scope: &str,
+        title: String,
+        detail: Option<String>,
+        platform: Option<String>,
+    ) {
+        let entry = self.logs.record(level, scope, title, detail, platform);
+        self.send("log-appended", crate::logs::to_event_data(&entry));
+    }
 }
 
 impl TaskEventSink for ServerEvents {
     fn updated(&self, task: TaskRecord) {
-        // 高频进度只走 SSE；稳定的完成和错误状态才写入容器日志。
+        // 高频进度只走 SSE；稳定的完成和错误状态才写入容器日志与运行日志。
         match task.status {
-            TaskStatus::Completed => log::info!("任务 {} 下载完成", task.id),
-            TaskStatus::Error => log::warn!(
-                "任务 {} 失败: {}",
-                task.id,
-                task.error_msg.as_deref().unwrap_or("未知原因")
-            ),
+            TaskStatus::Completed => {
+                log::info!("任务 {} 下载完成", task.id);
+                let detail = crate::logs::detail_line(&[
+                    crate::logs::artist_or_unknown(&task.artist),
+                    &task.quality,
+                    task.file_path.as_deref().unwrap_or(""),
+                ]);
+                self.record(
+                    "success",
+                    "download",
+                    format!("下载完成 · {}", task.song_title),
+                    Some(detail),
+                    Some(task.platform.clone()),
+                );
+            }
+            TaskStatus::Error => {
+                let reason = task.error_msg.as_deref().unwrap_or("未知原因");
+                log::warn!("任务 {} 失败: {reason}", task.id);
+                self.record(
+                    "error",
+                    "download",
+                    format!("下载失败 · {}", task.song_title),
+                    Some(crate::logs::detail_line(&[
+                        crate::logs::artist_or_unknown(&task.artist),
+                        reason,
+                    ])),
+                    Some(task.platform.clone()),
+                );
+            }
             _ => {}
         }
         if let Ok(data) = serde_json::to_string(&task) {
@@ -269,6 +309,20 @@ impl DownloadProgressSink for ServerProgress {
     }
 
     fn metadata_error(&self, task_id: &str, message: &str) {
+        // 元数据写入失败不等于下载失败：任务仍是完成态，只在日志里留一条警告。
+        let task = self.tasks.get(task_id);
+        self.events.record(
+            "warn",
+            "download",
+            format!(
+                "元数据写入失败 · {}",
+                task.as_ref()
+                    .map(|task| task.song_title.clone())
+                    .unwrap_or_else(|| task_id.to_string())
+            ),
+            Some(message.to_string()),
+            task.map(|task| task.platform),
+        );
         self.events.send(
             "download-metadata-error",
             serde_json::json!({ "taskId": task_id, "errorMsg": message }).to_string(),
@@ -324,10 +378,16 @@ pub struct ServerRuntime {
     pub engine: DownloadEngine,
     pub environment: Arc<ServerEnvironment>,
     pub events: Arc<ServerEvents>,
+    /// 运行日志环形缓冲，落盘到 `data/logs.json`。
+    pub logs: Arc<LogBuffer>,
     pub login_store: Arc<FileLoginStore>,
     pub kugou_store: Arc<hotdownloader_core::platforms::kugou::login::Store>,
     pub netease_store: Arc<hotdownloader_core::platforms::netease::login::Store>,
+    /// 汽水登录 Cookie；空值时接口按匿名请求处理。
+    pub qishui_store: Arc<hotdownloader_core::platforms::qishui::credentials::Store>,
     pub auth: Arc<RwLock<crate::auth::AccessAuth>>,
+    /// 规范化后的数据目录；登录二维码等运行时产物写在这里。
+    pub data_dir: PathBuf,
     pub mcp_key: Arc<crate::mcp::McpKey>,
     pub shortcut_key: Arc<crate::shortcut::ShortcutKey>,
     pub notify: Arc<crate::notify::NotifyConfig>,
@@ -347,7 +407,8 @@ impl ServerRuntime {
         let shortcut_key = Arc::new(crate::shortcut::ShortcutKey::load(&data_dir)?);
         let notify = Arc::new(crate::notify::NotifyConfig::load(&data_dir)?);
         let environment = Arc::new(ServerEnvironment::load(&data_dir)?);
-        let events = Arc::new(ServerEvents::new());
+        let logs = Arc::new(LogBuffer::load(&data_dir));
+        let events = Arc::new(ServerEvents::new(logs.clone()));
         let repository = Arc::new(JsonTaskRepository::new(data_dir.join("tasks.json")));
         let tasks = Arc::new(TaskState::load(repository, events.clone())?);
         let progress = Arc::new(ServerProgress {
@@ -361,6 +422,11 @@ impl ServerRuntime {
         let kugou_store = Arc::new(hotdownloader_core::platforms::kugou::login::Store::new(
             data_dir.join("kugou-credentials.json"),
         ));
+        let qishui_store = Arc::new(hotdownloader_core::platforms::qishui::credentials::Store::new(
+            data_dir.join("qishui-credentials.json"),
+        ));
+        // 进程内缓存与磁盘保持一致，请求侧无需每次读文件。
+        qishui_store.preload();
         let links = Arc::new(
             PlatformDownloadLinkProvider::from_credentials_file(
                 data_dir.join("qq-credentials.json"),
@@ -385,12 +451,15 @@ impl ServerRuntime {
             engine: engine.clone(),
             environment,
             events,
+            logs,
             login_store,
             kugou_store,
             netease_store,
+            qishui_store,
             settings_patch_lock: Mutex::new(()),
             auth: Arc::new(RwLock::new(auth)),
             auth_path,
+            data_dir: data_dir.clone(),
             mcp_key,
             shortcut_key,
             notify,
