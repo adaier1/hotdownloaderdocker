@@ -212,7 +212,7 @@ python scripts/qishui_stream.py <track_id>
 | 会员曲目只有 60 秒 | 账号不是会员，签名不影响权限 |
 | 昨天能用今天不行 | Cookie 过期（`sid_guard`），重跑 `scripts/qishui_login.py client --mcp` |
 
-> 从客户端读 Cookie 的完整流程（含 Windows/macOS 路径、签名器探测、自检脚本）见仓库内技能文档 `.workbuddy/skills/hotdownloader/references/qishui.md`。
+> 从客户端读 Cookie 的完整流程（含 Windows/macOS 路径、签名器探测、自检脚本）见仓库内技能文档 `skills/hotdownloader/references/qishui.md`。
 
 ---
 
@@ -338,6 +338,56 @@ MCP 侧的登录流程与网页一致，但二维码是**直接作为图片返�
   }
 }
 ```
+
+---
+
+## 🧩 配套 Skill（让 agent 按套路用起来）
+
+仓库里带了一份 **agent 使用手册**：`skills/hotdownloader/`。它不是插件、不改运行逻辑，而是把「怎么搜索、怎么解析、怎么建任务、平台差异、排错」固化成 Agent Skill，让 Claude / Codex / WorkBuddy 这类客户端不需要每次重新摸索。
+
+```
+skills/hotdownloader/
+├── SKILL.md              入口：搜索 / 解析 / 下载 / 任务 / 账号 / 排错
+└── references/
+    ├── qishui.md         汽水专项（客户端 Cookie、签名、直链投递）
+    └── signer.md         签名与 App 端请求契约
+```
+
+它调用的能力就是本文档里的 MCP 工具与 `/api/*` 接口，配套脚本在仓库 `scripts/` 下：
+
+| 脚本 | 用途 |
+| --- | --- |
+| `scripts/qishui_login.py` | 从本机汽水客户端读 Cookie 并落库 |
+| `scripts/qishui_doctor.py` | 六项环境自检（系统 / MCP / 客户端 / Cookie / 签名 / 应用状态） |
+| `scripts/qishui_stream.py` | 一次性解析汽水直链（喂给 `stream`，无需常驻服务） |
+| `scripts/qishui-signer-server.mjs` | 宿主机签名服务（供容器调用） |
+
+### 安装
+
+**方式一：项目级（推荐，跟随仓库）**
+
+```bash
+git clone https://github.com/adaier1/hotdownloaderdocker.git
+cd hotdownloaderdocker
+mkdir -p .workbuddy/skills
+cp -r skills/hotdownloader .workbuddy/skills/
+```
+
+**方式二：用户级（所有项目都能用）**
+
+```bash
+cp -r skills/hotdownloader ~/.workbuddy/skills/          # macOS / Linux
+# Windows: xcopy skills\hotdownloader %USERPROFILE%\.workbuddy\skills\hotdownloader /E /I
+```
+
+**方式三：直接下载**（不想 clone 时）
+
+- 目录浏览：<https://github.com/adaier1/hotdownloaderdocker/tree/main/skills/hotdownloader>
+- 单文件：<https://raw.githubusercontent.com/adaier1/hotdownloaderdocker/main/skills/hotdownloader/SKILL.md>
+
+装好后对 agent 说一句「用 hotdownloader 技能帮我在服务端解析这条网易云链接并下载」即可；技能会自动先跑自检、判断平台登录态，再决定走 MCP 还是 HTTP。
+
+> 触发词：HotDownloader 怎么用、搜索歌曲、解析分享链接、建下载任务、汽水音乐、QQ音乐链接、网易云链接。
 
 ---
 
