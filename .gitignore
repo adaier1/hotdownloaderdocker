@@ -32,6 +32,10 @@ downloads/
 *.sln
 *.sw?
 
+# Python 产物（scripts 里的辅助脚本）
+__pycache__/
+*.py[cod]
+
 # Test files
 tests/
 

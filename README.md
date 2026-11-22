@@ -27,6 +27,7 @@ Rust 服务同时托管 Web 页面与 API，浏览器只访问一个端口，无
         │    ├── /api/settings → 设置（字段级合并）
         │    ├── /api/logs     → 运行日志（服务端）
         │    ├── /api/login/*  → 扫码/手动登录
+        │    ├── /api/qishui/* → 汽水 Cookie / 签名器状态
         │    ├── /api/events   → SSE 任务/设置实时推送
         │    └── /healthz      → 健康检查
         │                                  │
@@ -54,7 +55,7 @@ Rust 服务同时托管 Web 页面与 API，浏览器只访问一个端口，无
 
 ## 🆕 界面与交互更新
 
-- **接入汽水音乐**：粘贴单曲分享链接（含 `qishui.douyin.com` 短链）即可解析歌名、封面、逐字歌词并下载 320k / 128k / 64k AAC；会员曲目匿名只下发 60 秒试听（解析页会明确提示），关键词搜索需在「账号设置 → 汽水音乐」填入 Cookie。
+- **接入汽水音乐**：分享链接（含 `qishui.douyin.com` 短链）解析歌名、封面、逐字歌词；免费曲目可下整曲，会员曲目要「会员账号 + 应用签名」才能拿全。Web 端只做解析与试听/3 档 AAC —— 关键词搜索必须签名，已从搜索页移除，改由 agent/MCP 承担。详见下文「汽水音乐：会员整曲与签名」。
 - **全新「纸面」视觉**：暖灰画布 + 纯白卡片 + 近黑主操作，统一圆角、细描边与等宽数字，去掉花哨渐变。
 - **总览页重做**：四格关键指标、近 7 天完成/失败趋势细柱图、最近下载列表与曲库构成。
 - **独立日志页**：解析、下载、账号、连接事件统一留痕，可按「解析 / 下载 / 仅失败」筛选，**只保留最近 200 条**，超出自动丢弃；日志由服务端环形缓冲保存到 `/data/logs.json`，换设备、清缓存或更换访问端口后仍在（桌面端没有独立服务，仍写本机）。
@@ -146,6 +147,75 @@ services:
 
 ---
 
+## 🎧 汽水音乐：会员整曲与签名
+
+前置：要拿会员整曲或做汽水搜索，需要在装有汽水客户端的 Windows 上准备 Node 22（或让客户端自带 Electron 顶替）；只做分享链接解析则不需要任何额外依赖。
+
+三条容易误解的事实：
+
+1. **没有网页版**：`www.qishui.com` 只是下载落地页，分享 H5 也没有登录入口，所以 Cookie 只能从桌面客户端的库文件里读；
+2. **Cookie 不等于能用**：搜索、`hi_res`/`spatial` 档位、会员曲整曲还要 `x-helios`/`x-medusa` 应用签名，而签名只能由客户端里的 `bdms.node`（Windows 原生插件）生成；
+3. **签名不改变曲目权限**：会员曲目 60 秒试听是账号问题，不是签名问题。
+
+缺签名时服务端的响应是 **`HTTP 200` + 空 body**，所以搜索看起来像「没有结果」、取流看起来像「该音质不可用」。
+
+### 三种部署形态
+
+| 形态 | 签名从哪来 | 适用 |
+| --- | --- | --- |
+| A. 服务也跑在 Windows（不经 Docker） | 进程内调本机 `bdms.node`（`mode: local`） | 单机自用，最省事 |
+| B. Docker + 宿主机签名服务 | 容器通过 `QISHUI_SIGNER_URL` 调宿主机（`mode: remote`） | 局域网/家用服务器，想要完整搜索与高音质 |
+| C. 公网 Docker + 本机解析（直链投递） | 服务端**不需要**签名 | 公网部署，服务端零凭据 |
+
+### 形态 B：宿主机签名服务
+
+签名服务跑在装有汽水客户端的 Windows 上，容器通过 `host.docker.internal` 调它：
+
+```bash
+# 宿主机
+QISHUI_SIGNER_TOKEN=<自定义token> node scripts/qishui-signer-server.mjs
+# 监听 0.0.0.0:8899；GET /config 给设备身份，POST /sign 出 x-helios / x-medusa
+```
+
+`.env`（`docker-compose.yml` 已透传）：
+
+```
+QISHUI_SIGNER_URL=http://host.docker.internal:8899/sign
+QISHUI_SIGNER_TOKEN=<与上面一致>
+```
+
+- 这个终端**必须保持在线**，关掉后只会静默退化（搜不到、档位变少），不会报错；
+- 公网服务器上 `host.docker.internal` 无效，需换成隧道地址（Tailscale / Cloudflare Tunnel），并且**必须走 HTTPS 或私有网络**——签名请求里带 Cookie；
+- 状态自查：`GET /api/qishui/signer` 返回 `{"available":true,"mode":"remote"}` 即正常。
+
+### 形态 C：本机解析 + 直链投递（服务端零签名、零 Cookie）
+
+在能签名的机器上一次性解析出 CDN 直链，随任务投给服务器：
+
+```bash
+python scripts/qishui_stream.py <track_id>
+# {"url":"https://…","playAuth":"…","filename":"320.m4a","size":8414936,"expiresAt":0}
+```
+
+把这段 JSON 作为 `create_download_task` 的 `stream` 参数（MCP）或 `POST /api/tasks` 的 `stream` 字段即可，服务器只负责下载与解密。
+
+- 脚本用 `node -e` 调一次 `bdms.node` 就退出，**不需要常驻服务**；
+- 优先选 `hi_res` / `highest`，`spatial` 的地址在无 Cookie 的机器上会被降级；
+- 直链带 `expire`，过期任务会直接标错，需要重新解析。
+
+### 常见问题
+
+| 现象 | 结论 |
+| --- | --- |
+| 解析页只有 320/128/64 三档 | 没有签名（或没装客户端），不是解析失败 |
+| 搜索汽水返回空 | 已从 Web 搜索页移除；需 agent + 签名，或改用分享链接 |
+| 会员曲目只有 60 秒 | 账号不是会员，签名不影响权限 |
+| 昨天能用今天不行 | Cookie 过期（`sid_guard`），重跑 `scripts/qishui_login.py client --mcp` |
+
+> 从客户端读 Cookie 的完整流程（含 Windows/macOS 路径、签名器探测、自检脚本）见仓库内技能文档 `.workbuddy/skills/hotdownloader/references/qishui.md`。
+
+---
+
 ## ⚡ 快捷指令（iOS 捷径 / 脚本）
 
 把分享链接交给手机上的「分享 → 运行捷径」，服务端解析后**直接创建下载任务**，不需要打开网页逐首确认。
@@ -216,10 +286,11 @@ curl "http://127.0.0.1:8080/api/shortcut/parse?key=<密钥>&url=https%3A%2F%2Fy.
   - URL 携带密钥：`http://<主机IP>:8080/mcp?key=<密钥>`
   - 请求头：`Authorization: Basic base64(用户名:密码)`，或 `Authorization: Bearer <HOTDOWNLOADER_TOKEN>`（令牌模式）
 
-提供的工具（共 32 个）：
+提供的工具（共 33 个）：
 
 - 搜索：`search_songs`、`search_albums`、`search_artists`、`search_playlists`、`fetch_album_songs`、`fetch_artist_songs`、`fetch_artist_albums`、`fetch_playlist_songs`、`fetch_hot_keywords`、`fetch_suggestions`、`get_lyric_by_id`
-- 任务：`list_tasks`、`create_download_task`、`pause_task`、`resume_task`、`retry_task`、`remove_task`、`remove_tasks`
+- 解析：`parse_link`（任意平台分享链接/文案 → 歌曲或歌单，结果可直接建任务）
+- 任务：`list_tasks`、`create_download_task`（支持 `stream` 直链：由能签名的机器解析好后投递，服务端不再请求平台接口）、`pause_task`、`resume_task`、`retry_task`、`remove_task`、`remove_tasks`
 - 设置：`get_settings`、`patch_settings`、`get_default_download_dir`、`get_login_status`
 - 曲库：`list_library`、`delete_library_files`、`rename_library_file`、`write_library_metadata`
 - 账号：`list_accounts`、`start_qr_login`、`check_qr_login`、`save_cookie`、`login_with_credentials`、`logout_account`
@@ -305,6 +376,16 @@ npm run dev
 本项目基于 [Apache License 2.0](LICENSE) 开源，第三方组件许可见 `NOTICE` 与 `THIRD_PARTY_LICENSES.txt`。
 
 ---
+
+## 🔐 安全与隐私
+
+- 运行数据（`/data`：Cookie、MCP 密钥、任务记录）与下载目录（`/downloads`）**不要提交到任何仓库**，`.gitignore` 已排除 `data/`、`downloads/`、`.env`、`.workbuddy/`；
+- 公网部署时 `/mcp` 相当于管理员凭据（能写 Cookie、建任务），建议在反向代理层只对自己放行，或定期在设置页重置密钥；
+- 远程签名服务会收到**完整请求头（含 Cookie）**：只在内网/本机运行、必须设置 `QISHUI_SIGNER_TOKEN`，不要暴露公网；更彻底的做法是采用「本机解析 + 直链投递」，让服务端完全不持有 Cookie；
+- 截分享截图前注意遮挡账号信息；怀疑 Cookie 泄露时，在汽水客户端退出登录（或改绑）即可让旧 Cookie 失效。
+
+---
+
 
 ## ⚠️ 免责声明
 
