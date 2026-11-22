@@ -23,16 +23,15 @@ pub async fn resolve_track_id(text: &str) -> Result<String, String> {
 ///
 /// 音源拿不到时仍然返回元数据：分享链接解析需要歌名和封面，
 /// 只是 `qualities` 为空，前端会提示暂无可用音质。
+/// 具备签名条件时，`qualities` 里会带上 App 端的完整变体与无损档位。
 pub async fn fetch_song_detail(separator: &str, track_id: &str) -> Result<String, String> {
     let track_id = track_id.trim();
     if !is_track_id(track_id) {
         return Err("无效的汽水曲目 ID".into());
     }
-    let payload = parser::fetch_track_payload(track_id).await?;
-    let track = parser::primary_track(&payload)
+    let bundle = parser::fetch_track(track_id).await?;
+    let track = parser::primary_track(&bundle.payload)
         .cloned()
         .ok_or_else(|| "汽水未返回曲目信息".to_string())?;
-    let full_duration = parser::track_duration(&track);
-    let players = parser::players(&payload, full_duration).await;
-    Ok(parser::song(&track, separator, &players, track_id).to_string())
+    Ok(parser::song(&track, separator, &bundle.players, track_id).to_string())
 }

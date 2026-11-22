@@ -1,4 +1,8 @@
-//! 汽水搜索：优先免签的 PC Web 接口，失败后退到移动端匿名接口。
+//! 汽水搜索：签名 PC 接口 → 免签 Web 接口 → 移动端匿名接口，逐级兜底。
+//!
+//! 2026-11 实测：免签搜索一律返回 `200 + 空 body`，只有带 `x-helios` / `x-medusa` 的
+//! App 端请求才能拿到结果。所以「能不能搜」取决于本机有没有汽水客户端（[`super::signer`]），
+//! 没有时行为与改造前完全一致，只是提示语更准确。
 //!
 //! 两个接口都按 `cursor` 翻页且不做页码承诺，这里只提供首屏：
 //! 项目其余平台用 `page/limit`，与其猜游标不如让前端拿到真实的一页。
@@ -66,6 +70,13 @@ fn with_default_quality(mut song: Value) -> Value {
 }
 
 async fn fetch(keyword: &str, count: u32) -> Result<Value, String> {
+    if super::app::signed_ready() {
+        match super::app::fetch_pc_search(keyword).await {
+            Ok(body) if body["result_groups"].is_array() => return Ok(body),
+            Ok(_) => log::warn!("汽水签名搜索响应缺少结果分组，回退免签搜索"),
+            Err(error) => log::warn!("汽水签名搜索失败，回退免签搜索：{error}"),
+        }
+    }
     let web = client::get_json(&web_search_url(keyword, count)).await;
     match web {
         Ok(body) if body["result_groups"].is_array() => Ok(body),
@@ -75,8 +86,8 @@ async fn fetch(keyword: &str, count: u32) -> Result<Value, String> {
 }
 
 async fn fallback(keyword: &str, count: u32, reason: &str) -> Result<Value, String> {
-    // 两个匿名入口目前都会被风控拦成 200 + 空 body，先把技术原因记进日志，
-    // 对用户只给可执行的建议，避免把"空响应"这类底层细节暴露到界面。
+    // 两个匿名入口都会被风控拦成 200 + 空 body，先把技术原因记进日志，
+    // 对用户给可执行的建议，避免把"空响应"这类底层细节暴露到界面。
     let mobile = client::get_json_with_ua(&android_search_url(keyword, count), ANDROID_UA).await;
     if let Ok(body) = &mobile {
         if body["result_groups"].is_array() {
@@ -87,7 +98,11 @@ async fn fallback(keyword: &str, count: u32, reason: &str) -> Result<Value, Stri
         "汽水搜索失败：web={reason}；mobile={:?}",
         mobile.as_ref().err()
     );
-    Err("汽水搜索暂不可用：接口对未登录请求返回空响应，请改用分享链接解析".into())
+    Err(if super::signer::available() {
+        "汽水搜索暂不可用：接口返回空响应，请改用分享链接解析".into()
+    } else {
+        "汽水搜索需要本机汽水客户端提供签名；未安装客户端时请改用分享链接解析".into()
+    })
 }
 
 fn web_search_url(keyword: &str, count: u32) -> String {
@@ -165,7 +180,7 @@ fn tracks(body: &Value) -> Vec<&Value> {
 }
 
 /// 与客户端一致：每次搜索生成一个随机 UUID，服务端用它串联同一次搜索。
-fn search_id() -> String {
+pub(crate) fn search_id() -> String {
     let mut bytes: [u8; 16] = rand::random();
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;

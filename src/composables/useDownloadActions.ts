@@ -5,6 +5,7 @@ import { useSettingsStore } from '../stores/settingsStore'
 import { useTaskStore } from '../stores/taskStore'
 import { useLogStore } from '../stores/logStore'
 import QualitySelector from '../components/search/QualitySelector.vue'
+import { getQishuiSongDetail } from '../api/musicApi'
 
 /** 只处理用户交互：音质选择、重名确认及通知。品质降级、路径与重试由 Rust 决定。 */
 export function useDownloadActions() {
@@ -96,19 +97,45 @@ export function useDownloadActions() {
         return 'created'
     }
 
+    /**
+     * 汽水搜索结果只带一个占位档位（128kaac），真档位要问详情接口。
+     * 取不到（没签名/网络问题）就沿用原对象，绝不因为补齐失败而挡住下载。
+     */
+    async function withQishuiQualities(song: SongInfo): Promise<SongInfo> {
+        if (song.platform !== 'qishui') {
+            return song
+        }
+        try {
+            const detail = await getQishuiSongDetail(song.mid)
+            if (detail.qualities?.length) {
+                return {
+                    ...song,
+                    qualities: detail.qualities,
+                    preview: detail.preview ?? song.preview,
+                    coverUrl: song.coverUrl || detail.coverUrl,
+                }
+            }
+        } catch (error) {
+            console.warn('汽水详情补齐失败，使用搜索结果音质:', error)
+        }
+        return song
+    }
+
     async function downloadSingle(song: SongInfo, forceQuality?: Quality): Promise<void> {
         try {
+            // 需要用户选音质时先补齐档位，选择器里才能看到 spatial/hi_res。
+            const target = await withQishuiQualities(song)
             let quality = forceQuality ?? settingsStore.settings.defaultQuality
             if (quality === 'ask') {
                 try {
-                    quality = await askQuality(song.qualities)
+                    quality = await askQuality(target.qualities)
                 } catch {
                     return
                 }
             }
             // 设置有防抖写盘；先刷入存储，保证 Rust 读取的是用户当前选择。
             await settingsStore.flushSettings()
-            const outcome = await submitSong(song, quality)
+            const outcome = await submitSong(target, quality)
             if (outcome === 'created') {
                 logStore.push({
                     level: 'info',
@@ -165,6 +192,7 @@ export function useDownloadActions() {
             await settingsStore.flushSettings()
             let errors = 0
             for (const song of songs) {
+                // 批量下载不逐首补详情：汽水会一首一发签名请求，批量场景交给 Rust 按可用档位降级。
                 const outcome = await submitSong(song, quality)
                 if (outcome === 'error') {
                     errors++

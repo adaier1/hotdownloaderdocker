@@ -13,5 +13,9 @@ export const PLATFORMS: PlatformOption[] = [
   { key: 'qishui', label: 'QS' },
 ]
 
+// 搜索页可选平台：汽水没有可用的搜索接口（需要本机签名，公网部署拿不到），
+// 只保留分享链接解析入口，因此不列在这里。
+export const SEARCH_PLATFORMS: PlatformOption[] = PLATFORMS.filter((item) => item.key !== 'qishui')
+
 // 默认平台 key
 export const DEFAULT_PLATFORM = PLATFORMS[0].key

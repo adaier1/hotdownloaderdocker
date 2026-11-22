@@ -1,14 +1,17 @@
 //! Rust 直连汽水音乐（字节跳动 Soda Music）。
 //!
-//! 匿名可用的端点只有三组，会员曲目的整曲流需要官方客户端生成的
-//! `x-helios` / `x-medusa` 签名头，这里不实现签名，拿不到时按试听片段处理：
+//! 免签端点只给「浏览器级」能力，会员曲目的整曲流、`hi_res` 档位与搜索都需要官方客户端
+//! 级别的应用签名（`x-helios` / `x-medusa`）：
 //!
-//! - `GET api.qishui.com/luna/pc/search/{track|playlist}`（`device_platform=web`）
+//! - `GET api.qishui.com/luna/pc/search/{track|playlist}`（`device_platform=web`，免签，实测会空响应）
 //! - `GET api.qishui.com/luna/pc/track_v2`（`device_platform=web`，与 App 端 POST 同名但不是同一入口）
 //! - `GET beta-luna.douyin.com/luna/h5/seo_track`（track_v2 的免签兜底）
+//! - `POST api.qishui.com/luna/pc/track_v2`（App 端，需 Cookie + [`signer`]，见 [`app`]）
 //!
-//! 带 `play_auth` 的流是加密 M4A，下载完成后由 [`crypto`] 原地解密。
+//! 签名由用户机器上的汽水客户端 `bdms.node` 生成（[`signer`]），拿不到时自动退回免签端点，
+//! 此时会员曲目只有试听片段。带 `play_auth` 的流是加密 M4A，下载完成后由 [`crypto`] 原地解密。
 
+pub mod app;
 pub mod client;
 pub mod credentials;
 pub mod crypto;
@@ -16,6 +19,7 @@ pub mod link;
 pub mod lyrics;
 pub mod parser;
 pub mod search;
+pub mod signer;
 pub mod song;
 
 use once_cell::sync::Lazy;
@@ -201,5 +205,68 @@ mod tests {
             .unwrap();
         assert!(response.status().is_success(), "{}", response.status());
         assert!(!response.bytes().await.unwrap().is_empty());
+    }
+
+    /// 手动运行（需本机汽水客户端 + 已登录 Cookie）：
+    /// `QISHUI_COOKIE_FILE=data/qishui-credentials.json cargo test ... live_signed_track -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "需要本机汽水客户端提供签名 + 已登录 Cookie"]
+    async fn live_signed_track_has_full_variants() {
+        let path = std::env::var("QISHUI_COOKIE_FILE").expect("需要 QISHUI_COOKIE_FILE 指向凭据文件");
+        let raw = std::fs::read_to_string(path).expect("读取凭据文件失败");
+        let cookie = serde_json::from_str::<serde_json::Value>(&raw).unwrap()["cookie"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        assert!(!cookie.is_empty(), "凭据文件里没有 cookie");
+        super::credentials::set_cached_cookie(&cookie);
+
+        let bundle = super::parser::fetch_track("7689447702921349121").await.unwrap();
+        println!("signed={} players={}", bundle.signed, bundle.players.len());
+        for player in &bundle.players {
+            println!(
+                "  {:?} {}kbps {}s preview={} size={} quality={} format={}",
+                player.quality_label(),
+                player.bitrate,
+                player.duration,
+                player.preview,
+                player.size,
+                player.quality,
+                player.format
+            );
+        }
+        assert!(bundle.signed, "应走 App 端签名链路");
+        assert!(
+            bundle
+                .players
+                .iter()
+                .any(|player| !player.preview && player.duration > 180),
+            "应拿到完整时长的变体"
+        );
+    }
+
+    /// 手动运行（需本机汽水客户端 + 已登录 Cookie）：
+    /// `QISHUI_COOKIE_FILE=... cargo test ... live_signed_search -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "需要本机汽水客户端提供签名 + 已登录 Cookie"]
+    async fn live_signed_search_returns_tracks() {
+        let path = std::env::var("QISHUI_COOKIE_FILE").expect("需要 QISHUI_COOKIE_FILE 指向凭据文件");
+        let raw = std::fs::read_to_string(path).expect("读取凭据文件失败");
+        let cookie = serde_json::from_str::<serde_json::Value>(&raw).unwrap()["cookie"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        super::credentials::set_cached_cookie(&cookie);
+
+        let payload = super::search::search_songs("、", "周杰伦".to_string(), 1, 10)
+            .await
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&payload).unwrap();
+        let songs = value["songs"].as_array().cloned().unwrap_or_default();
+        println!("搜索结果 {} 条", songs.len());
+        for song in songs.iter().take(3) {
+            println!("  {} - {}", song["title"], song["artist"]);
+        }
+        assert!(!songs.is_empty(), "签名搜索应返回结果");
     }
 }

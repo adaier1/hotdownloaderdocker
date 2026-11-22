@@ -8,7 +8,26 @@ export interface QishuiCookieStatus {
     keys: string
 }
 
+/** 汽水签名器状态：只含可用性与路径摘要，不含任何凭据。 */
+export interface QishuiSignerStatus {
+    available: boolean
+    /** `local`（本机 bdms.node）/ `remote`（远程签名服务）/ 空字符串。 */
+    mode: string
+    bdms: string
+    runtime: string
+    signerUrl: string
+    electronMode: boolean
+    deviceId: string
+}
+
 const native = isTauri()
+
+export async function getQishuiSignerStatus(): Promise<QishuiSignerStatus> {
+    if (native) {
+        return invoke<QishuiSignerStatus>('get_qishui_signer_status')
+    }
+    return webRequest<QishuiSignerStatus>('/api/qishui/signer')
+}
 
 export async function getQishuiCookieStatus(): Promise<QishuiCookieStatus> {
     if (native) {

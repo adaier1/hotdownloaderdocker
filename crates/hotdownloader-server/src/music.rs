@@ -212,6 +212,16 @@ pub async fn execute(
             )
             .await?
         }
+        // 搜索结果只带占位音质，下载前用详情补齐真实档位（含签名后的 spatial/hi_res）。
+        (Platform::Qishui, "songs/detail") => {
+            let text =
+                platforms::qishui::song::fetch_song_detail(artist_separator, &request.song_mid)
+                    .await?;
+            let mut song: Value = serde_json::from_str(&text)
+                .map_err(|error| format!("解析汽水详情失败: {error}"))?;
+            song["platform"] = serde_json::json!(platform.as_str());
+            return Ok(serde_json::json!({ "song": song }));
+        }
         // 汽水没有热搜与联想接口，返回空结果让前端保持可用。
         (Platform::Qishui, "hot-keywords") => return Ok(Value::Array(Vec::new())),
         (Platform::Qishui, "suggestions") => {

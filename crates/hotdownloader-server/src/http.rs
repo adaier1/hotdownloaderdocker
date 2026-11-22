@@ -355,6 +355,10 @@ pub async fn handle(
             }
             Err(error) => error_response(StatusCode::BAD_REQUEST, error),
         },
+        (Method::GET, "/api/qishui/signer") => json_response(
+            StatusCode::OK,
+            json!(hotdownloader_core::platforms::qishui::signer::status()),
+        ),
         (Method::DELETE, "/api/qishui/cookie") => match runtime.qishui_store.clear() {
             Ok(()) => json_response(StatusCode::OK, json!({ "ok": true })),
             Err(error) => error_response(StatusCode::INTERNAL_SERVER_ERROR, error),

@@ -118,6 +118,7 @@ async fn enqueue(
             }
         };
         let request = CreateTaskRequest {
+            stream: None,
             song: song_input,
             desired_quality: quality,
             // 重名自动改名：捷径场景没有交互，不能停在"是否覆盖"上。

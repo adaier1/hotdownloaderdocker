@@ -4,6 +4,7 @@
 //! 保存后立即刷新进程内缓存，搜索与详情无需重启即可带上登录态。
 
 use hotdownloader_core::platforms::qishui::credentials::{self, Store};
+use hotdownloader_core::platforms::qishui::signer;
 use tauri::{command, AppHandle, Manager};
 
 fn store(app: &AppHandle) -> Result<Store, String> {
@@ -32,4 +33,17 @@ pub async fn save_qishui_cookie(
 #[command]
 pub async fn clear_qishui_cookie(app: AppHandle) -> Result<(), String> {
     store(&app)?.clear()
+}
+
+/// 签名器状态：本机 bdms.node 或远程服务是否可用，只回路径摘要与掩码后的设备号。
+#[command]
+pub async fn get_qishui_signer_status() -> Result<signer::Status, String> {
+    Ok(signer::status())
+}
+
+/// 汽水单曲详情：搜索结果只给占位音质，下载前用它补齐真实档位（含 spatial/hi_res）。
+#[command]
+pub async fn qishui_song_detail(app: AppHandle, song_mid: String) -> Result<String, String> {
+    let separator = crate::utils::settings::get_artist_separator(&app);
+    hotdownloader_core::platforms::qishui::song::fetch_song_detail(&separator, &song_mid).await
 }

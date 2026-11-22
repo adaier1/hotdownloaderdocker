@@ -157,6 +157,22 @@ export async function getLyricBySongId(platform: string, songId: number): Promis
     });
 }
 
+/**
+ * 汽水搜索结果是占位音质（128kaac），下载前取一次详情补齐真实档位。
+ * 详情需要签名才有 spatial/hi_res；签名不可用时保持原样，不阻塞下载。
+ */
+export async function getQishuiSongDetail(songMid: string): Promise<SongInfo> {
+    if (native) {
+        const raw = await invoke<string>('qishui_song_detail', { songMid })
+        return JSON.parse(raw) as SongInfo
+    }
+    const parsed = await webRequest<{ song: SongInfo }>('/api/music/songs/detail', {
+        method: 'POST',
+        body: JSON.stringify({ platform: 'qishui', songMid }),
+    })
+    return parsed.song
+}
+
 // 请求系统通知权限
 export async function requestNotificationPermission(): Promise<boolean> {
     if (!native) {

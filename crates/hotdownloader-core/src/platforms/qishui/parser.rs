@@ -4,6 +4,10 @@
 //! 与 `track_player.url_player_info`（返回海外的 PlayInfoList）。两者都要收集，
 //! 因为不同曲目只会在其中一个里给出可用流。
 
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::{json, Map, Value};
@@ -194,7 +198,113 @@ pub async fn players(payload: &Value, full_duration: u64) -> Vec<Player> {
             collect_from_play_info(&body, full_duration, &mut collected);
         }
     }
+    // App 端会把整支 MV 当成 `quality=lossless`、`format=mp4` 的变体一起下发（实测 33MB/210s），
+    // 容器里是视频不是音频，留着会把「320k」错标成 33MB，也可能被当成音频下载。
+    collected.retain(|player| {
+        !(player.format.eq_ignore_ascii_case("mp4")
+            && player.quality.to_lowercase().contains("lossless"))
+    });
     dedup(collected)
+}
+
+/// 一次取详情的完整结果：原始响应 + 归一后的可用流。
+///
+/// `signed` 为真表示流列表里包含 App 端签名链路的完整变体（可能含 `hi_res`）。
+#[derive(Clone)]
+pub struct TrackBundle {
+    pub payload: Value,
+    pub players: Vec<Player>,
+    pub signed: bool,
+}
+
+/// 详情结果缓存：解析页与建任务只隔几秒，缓存避免同一首歌重复签名取流。
+static TRACK_CACHE: Lazy<Mutex<HashMap<String, (Instant, TrackBundle)>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+const CACHE_TTL: Duration = Duration::from_secs(120);
+
+/// 取详情并合并出最终可用流：免签端点打底，必要时补一发 App 端签名取流。
+pub async fn fetch_track(track_id: &str) -> Result<TrackBundle, String> {
+    let track_id = track_id.trim();
+    if !is_track_id(track_id) {
+        return Err("无效的汽水曲目 ID".into());
+    }
+    if let Some(hit) = cache_get(track_id) {
+        return Ok(hit);
+    }
+
+    let payload = fetch_track_payload(track_id).await?;
+    let full_duration = primary_track(&payload).map(track_duration).unwrap_or(0);
+    let mut players = self::players(&payload, full_duration).await;
+    let mut signed = false;
+
+    if super::app::signed_ready() && needs_app_stream(&payload, &players) {
+        match super::app::fetch_pc_track(track_id).await {
+            Ok(pc) => {
+                let pc_duration = primary_track(&pc)
+                    .map(track_duration)
+                    .unwrap_or(0)
+                    .max(full_duration);
+                let pc_players =
+                    merge_players(Vec::new(), self::players(&pc, pc_duration).await);
+                if pc_players.iter().any(|player| !player.preview) {
+                    signed = true;
+                    players = merge_players(pc_players, players);
+                }
+            }
+            Err(error) => log::warn!("汽水 App 端取流失败（{track_id}）：{error}"),
+        }
+    }
+
+    let bundle = TrackBundle {
+        payload,
+        players,
+        signed,
+    };
+    cache_put(track_id, &bundle);
+    Ok(bundle)
+}
+
+/// App 端只在「免签结果不够用」时才请求：有试听标记、全是试听片段、或者拿不到无损。
+fn needs_app_stream(payload: &Value, players: &[Player]) -> bool {
+    let has_audition = primary_track(payload)
+        .and_then(|track| track.get("audition_info"))
+        .and_then(Value::as_object)
+        .is_some_and(|info| !info.is_empty());
+    let preview_only = players.iter().all(|player| player.preview);
+    let lossless = players
+        .iter()
+        .any(|player| matches!(player.quality_label(), Some("hires") | Some("flac")));
+    has_audition || preview_only || !lossless
+}
+
+/// App 端变体排在前面；同码率同时长的重复项丢弃（两个来源会给同一份文件不同的 CDN 地址）。
+fn merge_players(primary: Vec<Player>, secondary: Vec<Player>) -> Vec<Player> {
+    let mut merged = primary;
+    for player in secondary {
+        let duplicate = merged.iter().any(|existing| {
+            existing.url == player.url
+                || (existing.bitrate == player.bitrate
+                    && existing.quality_label() == player.quality_label()
+                    && existing.duration.abs_diff(player.duration) <= 1)
+        });
+        if !duplicate {
+            merged.push(player);
+        }
+    }
+    merged
+}
+
+fn cache_get(track_id: &str) -> Option<TrackBundle> {
+    let guard = TRACK_CACHE.lock().ok()?;
+    let (at, bundle) = guard.get(track_id)?;
+    (at.elapsed() < CACHE_TTL).then(|| bundle.clone())
+}
+
+fn cache_put(track_id: &str, bundle: &TrackBundle) {
+    if let Ok(mut guard) = TRACK_CACHE.lock() {
+        guard.retain(|_, (at, _)| at.elapsed() < CACHE_TTL);
+        guard.insert(track_id.to_string(), (Instant::now(), bundle.clone()));
+    }
 }
 
 /// `video_model` 可能是对象、数组，或被转义一至三层的 JSON 字符串。

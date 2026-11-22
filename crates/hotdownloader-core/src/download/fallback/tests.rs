@@ -177,6 +177,7 @@ impl Fixture {
         })).unwrap();
         let CreateTaskResult::Created { task } = TaskService::new(&state, &engine, &env)
             .create_download_task(CreateTaskRequest {
+                stream: None,
                 song,
                 desired_quality: "臻品母带".into(),
                 duplicate_action: None,

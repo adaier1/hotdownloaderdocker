@@ -1,4 +1,4 @@
-//! 下载链接：重新取一次详情，按品质文件名挑出对应播放变体。
+//! 下载链接：取一次（必要时带签名的）详情，按品质文件名挑出对应播放变体。
 //!
 //! 汽水没有「按档位请求地址」的能力，一次响应就给出全部可用流，
 //! 因此这里沿用项目既有的 `{bitrate}.{format}` 文件名约定反查档位。
@@ -18,20 +18,42 @@ pub async fn get_download_link(
         return Err("无效的汽水曲目 ID".into());
     }
     let (stem, _) = split_filename(filename)?;
-    let payload = parser::fetch_track_payload(song_mid).await?;
-    let full_duration = parser::primary_track(&payload)
-        .map(parser::track_duration)
-        .unwrap_or(0);
-    let players = parser::players(&payload, full_duration).await;
-    let player = pick(&players, &stem).ok_or_else(|| {
-        if players.is_empty() {
+    let bundle = parser::fetch_track(song_mid).await?;
+    let player = pick(&bundle.players, &stem).ok_or_else(|| {
+        // 音质对不上时把可选档位写进日志，便于区分「签名没生效」与「档位名不匹配」。
+        let available: Vec<String> = bundle
+            .players
+            .iter()
+            .map(|player| {
+                format!(
+                    "{}/{}/{}kbps{}",
+                    player.quality,
+                    player.format,
+                    player.bitrate,
+                    if player.preview { "/试听" } else { "" }
+                )
+            })
+            .collect();
+        log::warn!(
+            "汽水曲目 {song_mid} 没有 {filename} 对应档位（签名链路={}），可选：{}",
+            if bundle.signed { "开" } else { "关" },
+            if available.is_empty() {
+                "无".to_string()
+            } else {
+                available.join("、")
+            }
+        );
+        if bundle.players.is_empty() {
             "汽水未返回可播放音源".to_string()
         } else {
             format!("该音质不可用: {filename}")
         }
     })?;
     if player.preview {
-        log::warn!("汽水曲目 {song_mid} 仅返回试听片段");
+        log::warn!(
+            "汽水曲目 {song_mid} 仅返回试听片段（签名链路={}）",
+            if bundle.signed { "已启用" } else { "未启用" }
+        );
     }
     Ok((player.url.clone(), player.play_auth.clone()))
 }

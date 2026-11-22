@@ -182,6 +182,8 @@ pub fn run() {
             commands::api::qishui::get_qishui_cookie_status,
             commands::api::qishui::save_qishui_cookie,
             commands::api::qishui::clear_qishui_cookie,
+            commands::api::qishui::get_qishui_signer_status,
+            commands::api::qishui::qishui_song_detail,
             commands::notify::request_notification_permission,
             commands::notify::check_notification_permission,
         ])

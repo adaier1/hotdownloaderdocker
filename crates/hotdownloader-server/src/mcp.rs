@@ -157,6 +157,8 @@ async fn call_tool(
         "fetch_hot_keywords" => run_music(runtime, "hot-keywords", args).await,
         "fetch_suggestions" => run_music(runtime, "suggestions", args).await,
         "get_lyric_by_id" => run_music(runtime, "lyrics", args).await,
+        // 分享链接解析：与 Web 的「解析」入口同一套逻辑，平台由链接自身决定。
+        "parse_link" => run_music(runtime, "links/parse", args).await,
         // 任务
         "list_tasks" => Ok(json!(runtime.tasks.list())),
         "create_download_task" => create_download_task(runtime, args).await,
@@ -839,6 +841,21 @@ fn tool_definitions() -> Vec<Value> {
             }),
         ),
         tool(
+            "parse_link",
+            "解析任意平台的分享链接/分享文案，返回平台、类型与歌曲或歌单数据；结果可直接用于 create_download_task。",
+            json!({
+                "type": "object",
+                "properties": {
+                    "input": { "type": "string", "description": "分享链接、分享文案或纯 ID" },
+                    "platform": {
+                        "type": "string",
+                        "description": "可选：链接无法识别平台时的兜底平台（qqmusic/netease/kugou/kuwo/qishui/bilibili）"
+                    }
+                },
+                "required": ["input"]
+            }),
+        ),
+        tool(
             "fetch_hot_keywords",
             "获取指定平台的热搜关键词。",
             json!({
@@ -905,7 +922,19 @@ fn tool_definitions() -> Vec<Value> {
                         "required": ["platform", "id", "mid", "title", "artist", "album", "qualities"]
                     },
                     "desiredQuality": { "type": "string", "description": "期望音质" },
-                    "duplicateAction": { "type": "string", "enum": ["overwrite", "rename", "cancel"] }
+                    "duplicateAction": { "type": "string", "enum": ["overwrite", "rename", "cancel"] },
+                    "stream": {
+                        "type": "object",
+                        "description": "可选：已由具备签名能力的机器解析好的直链。传入后服务端只负责下载，不再请求平台接口（适合公网部署，服务端无签名能力时）。",
+                        "properties": {
+                            "url": { "type": "string", "description": "CDN 直链" },
+                            "playAuth": { "type": "string", "description": "加密流的 play_auth，明文流留空" },
+                            "filename": { "type": "string", "description": "品质文件名，形如 320.m4a" },
+                            "size": { "type": "integer" },
+                            "expiresAt": { "type": "integer", "description": "过期时间（毫秒时间戳），0 表示未知" }
+                        },
+                        "required": ["url", "filename"]
+                    }
                 },
                 "required": ["song", "desiredQuality"]
             }),

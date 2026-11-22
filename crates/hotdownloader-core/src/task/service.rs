@@ -106,11 +106,22 @@ impl<'a> TaskService<'a> {
             platform,
             song_id: task.song_id,
             song_mid: task.song_mid.clone(),
-            url: String::new(),
+            // 直链任务直接带上地址与 play_auth，worker 就不会再去请求平台接口。
+            url: task
+                .stream
+                .as_ref()
+                .filter(|item| !item.is_expired())
+                .map(|item| item.url.clone())
+                .unwrap_or_default(),
             save_path: task.save_path.clone().unwrap_or_default(),
             quality: task.quality.clone(),
             quality_filename: task.filename.clone(),
-            key: String::new(),
+            key: task
+                .stream
+                .as_ref()
+                .filter(|item| !item.is_expired())
+                .map(|item| item.play_auth.clone())
+                .unwrap_or_default(),
             file_size: task.file_size,
             downloaded_offset: task.downloaded,
             song_info: SongInfo {
@@ -256,9 +267,21 @@ impl<'a> TaskService<'a> {
                 _ => {}
             }
         }
-        let selected = rules
-            .initial_quality(&request.desired_quality, &request.song.qualities)
-            .cloned();
+        // 直链任务：解析已在具备签名能力的机器上完成，这里只校验直链是否还新鲜。
+        let stream = request.stream.clone();
+        let stream_ready = stream.as_ref().is_some_and(|item| !item.is_expired());
+        if let Some(item) = stream.as_ref() {
+            if !item.url.starts_with("http") || !item.filename.contains('.') {
+                return Err("直链参数不完整：需要 url 与 filename（形如 320.m4a）".into());
+            }
+        }
+        let selected = if stream_ready || stream.is_some() {
+            None
+        } else {
+            rules
+                .initial_quality(&request.desired_quality, &request.song.qualities)
+                .cloned()
+        };
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|e| e.to_string())?
@@ -275,24 +298,36 @@ impl<'a> TaskService<'a> {
             album: request.song.album,
             cover_url: request.song.cover_url,
             media_mid: request.song.media_mid,
-            filename: selected
-                .as_ref()
-                .map_or_else(String::new, |q| q.filename.clone()),
-            quality: selected
-                .as_ref()
-                .map_or(request.desired_quality, |q| q.quality.clone()),
-            status: if selected.is_some() {
+            filename: match (&stream, &selected) {
+                (Some(item), _) => item.filename.clone(),
+                (None, Some(quality)) => quality.filename.clone(),
+                (None, None) => String::new(),
+            },
+            quality: match (&stream, &selected) {
+                (Some(item), _) => item.quality_label(),
+                (None, Some(quality)) => quality.quality.clone(),
+                (None, None) => request.desired_quality.clone(),
+            },
+            status: if stream_ready || selected.is_some() {
                 TaskStatus::Waiting
             } else {
                 TaskStatus::Error
             },
-            error_msg: if selected.is_some() {
+            error_msg: if stream_ready {
+                None
+            } else if stream.is_some() {
+                Some("直链已过期，请在具备签名能力的机器上重新解析后投递".into())
+            } else if selected.is_some() {
                 None
             } else {
                 Some("所选音质不可用".into())
             },
             file_path: None,
-            file_size: selected.as_ref().map_or(0, |q| q.size),
+            file_size: match (&stream, &selected) {
+                (Some(item), _) if item.size > 0 => item.size,
+                (_, Some(quality)) => quality.size,
+                _ => 0,
+            },
             downloaded: 0,
             retry_count: 0,
             added_at: now,
@@ -300,9 +335,10 @@ impl<'a> TaskService<'a> {
             speed: None,
             save_path: None,
             path_warning: None,
+            stream,
         };
 
-        if selected.is_some() {
+        if task.status == TaskStatus::Waiting {
             let path = self.task_path_check(&task).await?;
             let reserved = state.path_reserved(&path.original_path);
             if path.exists || reserved {
@@ -945,6 +981,7 @@ mod tests {
 
     fn request(action: Option<DuplicateAction>) -> CreateTaskRequest {
         CreateTaskRequest {
+            stream: None,
             song: SongInput {
                 platform: "qqmusic".into(),
                 id: 1,

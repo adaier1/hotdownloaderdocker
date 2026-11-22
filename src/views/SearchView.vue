@@ -11,7 +11,7 @@
         <!-- 平台绑定 + 搜索类型切换 -->
         <div class="search-header rise" style="--i: 1">
             <SearchBar :keyword="keyword" @update:keyword="onKeywordInput" v-model:platform="currentPlatform"
-                :platform-options="PLATFORMS" :placeholder="searchPlaceholder" button-text="搜索"
+                :platform-options="SEARCH_PLATFORMS" :placeholder="searchPlaceholder" button-text="搜索"
                 @search="handleSearch" />
 
             <!-- 搜索类型切换按钮 -->
@@ -106,7 +106,7 @@ import { useSongSearch } from '../composables/useSongSearch'
 import { usePlaylistSearch } from '../composables/usePlaylistSearch'
 import * as musicApi from '../api/musicApi'
 import type { SearchSuggestionData, PlaylistSearchItem, SongInfo } from '../types'
-import { PLATFORMS, DEFAULT_PLATFORM } from '../config/platforms'
+import { SEARCH_PLATFORMS, DEFAULT_PLATFORM } from '../config/platforms'
 import { useMusicNavigation } from '../composables/useMusicNavigation'
 
 const router = useRouter()

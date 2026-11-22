@@ -68,6 +68,9 @@ pub struct TaskRecord {
     pub save_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path_warning: Option<String>,
+    /// 外部解析好的直链；只有这类任务不需要再请求平台接口。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream: Option<ResolvedStream>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -97,6 +100,48 @@ pub struct CreateTaskRequest {
     pub song: SongInput,
     pub desired_quality: String,
     pub duplicate_action: Option<DuplicateAction>,
+    /// 已由具备签名能力的机器解析好的直链；存在时服务器不再请求平台接口。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream: Option<ResolvedStream>,
+}
+
+/// 直链任务：解析（含签名）由外部机器完成，服务端只负责下载与解密。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedStream {
+    pub url: String,
+    #[serde(default)]
+    pub play_auth: String,
+    /// 品质文件名，沿用 `{bitrate}.{format}` 约定，例如 `320.m4a`。
+    pub filename: String,
+    #[serde(default)]
+    pub size: u64,
+    /// 过期时间（毫秒时间戳）；0 表示未知或不过期。
+    #[serde(default)]
+    pub expires_at: u64,
+}
+
+impl ResolvedStream {
+    /// 直链带 `expire` 参数，过期后必须重新解析。
+    pub fn is_expired(&self) -> bool {
+        self.expires_at > 0 && now_millis() >= self.expires_at
+    }
+
+    /// 品质标签取文件名主干，与 `{bitrate}.{format}` 约定一致。
+    pub fn quality_label(&self) -> String {
+        std::path::Path::new(&self.filename)
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("")
+            .to_string()
+    }
+}
+
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 /// ask 策略需要用户选择时返回 NeedsConfirmation；任务尚未写入持久化列表。

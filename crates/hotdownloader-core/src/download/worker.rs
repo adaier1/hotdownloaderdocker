@@ -81,8 +81,9 @@ pub async fn download_task(
     let mut downloaded = ctx.downloaded_offset;
 
     // 4. 链接与解密密钥（每次循环可能重新获取）
-    let mut url = String::new();
-    let mut key = String::new();
+    // 直链任务由上游解析好地址，这里直接用，避免再次请求平台接口（服务端可能没有签名能力）。
+    let mut url = ctx.url.clone();
+    let mut key = ctx.key.clone();
 
     // 5. 文件句柄（使用 BufWriter 提升写入性能）
     let mut file: Option<BufWriter<File>> = None;

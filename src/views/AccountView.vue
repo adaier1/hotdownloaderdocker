@@ -66,7 +66,7 @@ import QishuiCookieSetting from '../components/settings/QishuiCookieSetting.vue'
 import { getLoginStatus } from '../api/musicApi'
 import { kugouLogin } from '../api/kugouLogin'
 import { neteaseLogin } from '../api/neteaseLogin'
-import { getQishuiCookieStatus } from '../api/qishuiApi'
+import { getQishuiCookieStatus, getQishuiSignerStatus } from '../api/qishuiApi'
 
 type LoginState = 'loading' | 'ok' | 'none' | 'guest' | 'error'
 
@@ -114,17 +114,22 @@ async function refreshStatus() {
         }
     }
     try {
-        const [qq, kugou, netease, qishui] = await Promise.all([
+        const [qq, kugou, netease, qishui, signer] = await Promise.all([
             getLoginStatus('qqmusic').catch(() => null),
             kugouLogin('status').catch(() => null),
             neteaseLogin('status').catch(() => null),
             getQishuiCookieStatus().catch(() => null),
+            getQishuiSignerStatus().catch(() => null),
         ])
         mark('qqmusic', qq?.logged_in ? 'ok' : 'none', qq?.uin ?? '')
         mark('kugou', kugou?.logged_in ? 'ok' : 'none', kugou?.userid ?? '')
         mark('netease', netease?.logged_in ? 'ok' : 'none', netease?.nickname ?? '')
-        // 汽水只有手动粘贴的 Cookie，没有账号信息可展示。
-        mark('qishui', qishui?.configured ? 'ok' : 'none', qishui?.configured ? 'Cookie 已配置' : '')
+        // 汽水没有账号信息可展示；签名是否就绪决定搜索与高音质能不能用。
+        mark(
+            'qishui',
+            qishui?.configured ? 'ok' : 'none',
+            qishui?.configured ? (signer?.available ? 'Cookie + 签名' : 'Cookie 已配置') : '',
+        )
     } catch {
         mark('qqmusic', 'error')
         mark('kugou', 'error')
