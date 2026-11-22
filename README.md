@@ -348,6 +348,7 @@ MCP 侧的登录流程与网页一致，但二维码是**直接作为图片返�
 ```
 skills/hotdownloader/
 ├── SKILL.md              入口：搜索 / 解析 / 下载 / 任务 / 账号 / 排错
+├── INSTALL.md            安装说明（给 agent 照着执行 / 也给人看）
 └── references/
     ├── qishui.md         汽水专项（客户端 Cookie、签名、直链投递）
     └── signer.md         签名与 App 端请求契约
@@ -364,7 +365,20 @@ skills/hotdownloader/
 
 ### 安装
 
-**方式一：项目级（推荐，跟随仓库）**
+**方式 0：让 agent 自动安装（最省事）**
+
+把下面这段直接复制发给你的 agent，它会照着 `INSTALL.md` 完成下载、复制与校验：
+
+```
+Copy the prompt below and send it to your Agent to perform automated installation:
+
+请按这个说明，为我安装 hotdownloader Skill：
+https://raw.githubusercontent.com/adaier1/hotdownloaderdocker/main/skills/hotdownloader/INSTALL.md
+```
+
+安装说明本身也在这个文件里（可当成人看的步骤）：<https://github.com/adaier1/hotdownloaderdocker/blob/main/skills/hotdownloader/INSTALL.md>
+
+**方式一：项目级（跟随仓库）**
 
 ```bash
 git clone https://github.com/adaier1/hotdownloaderdocker.git
