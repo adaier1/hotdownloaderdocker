@@ -3,9 +3,22 @@
  *
  * 浏览器只在「安全上下文」（HTTPS 或 localhost）下暴露 navigator.clipboard，
  * 而 WebUI 常被以 `http://<局域网 IP>:<端口>` 的方式访问，此时 Clipboard API
- * 直接不可用（undefined），调用即抛错。这里按「Clipboard API → execCommand」
- * 的顺序回退，保证 HTTP 访问下也能复制。
+ * 直接不可用（undefined）。这里按「Clipboard API → execCommand」顺序回退。
+ *
+ * 回退分支的关键点：textarea 的 value 不是子节点，
+ * `range.selectNodeContents(textarea)` 得到的是空选区——此时
+ * execCommand('copy') 仍会返回 true，但剪贴板是空的。所以 textarea 分支只
+ * 依赖 select() + setSelectionRange()，绝不动 document 选区；只有 iOS 的
+ * contenteditable 分支才用 Range。
  */
+
+function isAppleMobile(): boolean {
+    if (typeof navigator === 'undefined') return false
+    const ua = navigator.userAgent || ''
+    if (/ipad|iphone|ipod/i.test(ua)) return true
+    // iPadOS 13+ 的 UA 伪装成 macOS，用触点数区分
+    return /macintosh|mac os x/i.test(ua) && (navigator.maxTouchPoints ?? 0) > 1
+}
 
 function execCommandCopy(text: string): boolean {
     if (typeof document === 'undefined' || typeof document.execCommand !== 'function') {
@@ -21,43 +34,61 @@ function execCommandCopy(text: string): boolean {
         }
     }
 
-    const textarea = document.createElement('textarea')
-    textarea.value = text
-    textarea.setAttribute('readonly', '')
-    textarea.setAttribute('aria-hidden', 'true')
-    // 固定在左上角并缩到最小，避免 iOS 聚焦时页面跳动或触发缩放
-    textarea.style.position = 'fixed'
-    textarea.style.top = '0'
-    textarea.style.left = '0'
-    textarea.style.width = '1px'
-    textarea.style.height = '1px'
-    textarea.style.padding = '0'
-    textarea.style.border = 'none'
-    textarea.style.outline = 'none'
-    textarea.style.boxShadow = 'none'
-    textarea.style.background = 'transparent'
-    textarea.style.opacity = '0'
-    textarea.style.fontSize = '12pt'
+    // iOS 对 readonly textarea 的 select() 不可靠，只能走 contenteditable + Range
+    const useEditable = isAppleMobile()
+    const field = useEditable ? null : document.createElement('textarea')
+    const editable = useEditable ? document.createElement('div') : null
+    const holder: HTMLElement = (field ?? editable) as HTMLElement
 
-    document.body.appendChild(textarea)
+    if (field) {
+        field.value = text
+        field.setAttribute('readonly', '')
+    } else if (editable) {
+        editable.textContent = text
+        editable.contentEditable = 'true'
+    }
+
+    // 移出视口而不是 opacity:0，保证选区在真机上有效
+    const style = holder.style
+    style.position = 'absolute'
+    style.left = '-9999px'
+    style.top = '0'
+    style.width = '2em'
+    style.height = '2em'
+    style.margin = '0'
+    style.padding = '0'
+    style.border = 'none'
+    style.outline = 'none'
+    style.boxShadow = 'none'
+    style.background = 'transparent'
+    style.fontSize = '12pt'
+    style.lineHeight = '1'
+    style.overflow = 'hidden'
+    holder.setAttribute('aria-hidden', 'true')
+    holder.setAttribute('tabindex', '-1')
+
+    document.body.appendChild(holder)
 
     let copied = false
     try {
-        textarea.focus({ preventScroll: true })
-        textarea.select()
-        textarea.setSelectionRange(0, text.length)
-        // iOS Safari 对 readonly 元素的 select() 不可靠，补一次 Range 选区
-        if (selection) {
+        holder.focus({ preventScroll: true })
+        if (field) {
+            // 只操作控件自身的选区，不要碰 document 选区
+            field.select()
+            field.setSelectionRange(0, text.length)
+        } else if (editable && selection) {
             const range = document.createRange()
-            range.selectNodeContents(textarea)
+            range.selectNodeContents(editable)
             selection.removeAllRanges()
             selection.addRange(range)
+            // iOS 需要再用输入框 API 校正一次，否则粘贴出来可能是空的
+            editable.focus({ preventScroll: true })
         }
         copied = document.execCommand('copy')
     } catch {
         copied = false
     } finally {
-        textarea.remove()
+        holder.remove()
         // 还原此前的焦点与选区，避免影响用户正在操作的输入框
         active?.focus?.({ preventScroll: true })
         if (selection) {
