@@ -12,6 +12,7 @@
 import { onMounted, ref } from 'vue'
 import { NFormItem, useDialog, useNotification } from 'naive-ui'
 import { fetchMcpKey, resetMcpKey } from '../../api/webClient'
+import { copyText } from '../../utils/clipboard'
 
 const notification = useNotification()
 const dialog = useDialog()
@@ -42,14 +43,13 @@ onMounted(loadKey)
 
 async function copy() {
     if (!url.value) return
-    try {
-        await navigator.clipboard.writeText(url.value)
+    if (await copyText(url.value)) {
         notification.success({ title: '已复制', content: 'MCP 链接已复制到剪贴板。' })
-    } catch {
-        // 剪贴板不可用时回退到选中文本，方便手动复制。
-        selectAll()
-        notification.warning({ title: '复制失败', content: '请手动复制已选中的链接。' })
+        return
     }
+    // 浏览器完全禁止写入剪贴板时，退化为选中文本，方便手动复制。
+    selectAll()
+    notification.warning({ title: '复制失败', content: '请手动复制已选中的链接。' })
 }
 
 function confirmReset() {

@@ -27,6 +27,7 @@
 import { onMounted, ref } from 'vue'
 import { NFormItem, useDialog, useNotification } from 'naive-ui'
 import { fetchShortcutKey, resetShortcutKey } from '../../api/webClient'
+import { copyText } from '../../utils/clipboard'
 
 const notification = useNotification()
 const dialog = useDialog()
@@ -57,13 +58,12 @@ onMounted(loadKey)
 
 async function copy() {
     if (!url.value) return
-    try {
-        await navigator.clipboard.writeText(url.value)
+    if (await copyText(url.value)) {
         notification.success({ title: '已复制', content: '调用地址已复制到剪贴板。' })
-    } catch {
-        selectAll()
-        notification.warning({ title: '复制失败', content: '请手动复制已选中的链接。' })
+        return
     }
+    selectAll()
+    notification.warning({ title: '复制失败', content: '请手动复制已选中的链接。' })
 }
 
 function confirmReset() {
