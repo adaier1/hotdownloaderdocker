@@ -93,7 +93,8 @@ def check_cookie(path: Path) -> tuple[bool, str]:
     try:
         cookie, names, encrypted = ql.cookies_from_client_db(path)
     except SystemExit as error:
-        return False, str(error)
+        # 只取首行做明细；「退出客户端」的完整提示放在 advice 里，避免表格串行
+        return False, str(error).splitlines()[0]
     if not cookie:
         if encrypted:
             return False, f"值被加密（{', '.join(encrypted[:3])}…），需要 DPAPI + AES-GCM 解密"
@@ -174,11 +175,13 @@ def main(argv: list[str]) -> int:
     )
 
     client_ok, client_detail, bdms = check_client()
+    running = ql.client_processes() if client_ok else []
+    client_note = f" · 客户端在运行（{len(running)} 进程）" if running else ""
     report(
         "3/6",
         "汽水客户端",
         OK if client_ok else BAD,
-        (client_detail if client_ok else "未安装或未登录过"),
+        (client_detail + client_note) if client_ok else "未安装或未登录过",
         "" if client_ok else "先安装并登录汽水客户端（https://www.qishui.com/download），否则拿不到 Cookie 也签不了名",
     )
 
@@ -189,7 +192,9 @@ def main(argv: list[str]) -> int:
             "登录 Cookie",
             OK if cookie_ok else BAD,
             cookie_detail,
-            "" if cookie_ok else "在客户端里完成登录后重跑本脚本",
+            ""
+            if cookie_ok
+            else (ql.close_client_advice() if running else "在客户端里完成登录后重跑本脚本"),
         )
     else:
         report("4/6", "登录 Cookie", BAD, "跳过（没有客户端）")

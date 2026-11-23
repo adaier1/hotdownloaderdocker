@@ -2,23 +2,28 @@
 """汽水音乐：在本机一次性解析出 CDN 直链（不需要常驻签名服务）。
 
 用途：把「解析」留在这台装有汽水客户端的机器上，把直链交给服务端下载。
+这是汽水下载的**优先路径**：服务端通常没有 `bdms.node`，让它自己签名只会降级。
 
   python qishui_stream.py 7689447702921349121
   python qishui_stream.py <track_id> --prefer hi_res --filename 320.m4a
+  python qishui_stream.py <track_id> --cookie "<cookie>"      # 显式给 Cookie
+  python qishui_stream.py <track_id> --cookie-from-client     # 强制读客户端库
 
 输出（stdout，单行 JSON，可直接作为 create_download_task 的 stream 参数）：
 
   {"url":"https://…","playAuth":"","filename":"320.m4a","size":8414936,"expiresAt":0}
 
-实现：读本机 Cookie → 用 node 一次性调 `bdms.node` 拿签名头 → POST track_v2
-→ 取 url_player_info 里时长完整的变体。签名进程用完即退，不监听端口、不需要常驻。
+实现：取 Cookie（显式参数 / 环境变量 / 凭据文件 / 本机客户端库）→ 用 node 一次性调
+`bdms.node` 拿签名头 → POST track_v2 → 取 url_player_info 里时长完整的变体。
+签名进程用完即退，不监听端口、不需要常驻。
 
 环境变量：
+  QISHUI_COOKIE          Cookie 字符串（优先于凭据文件）
   QISHUI_COOKIE_FILE    凭据文件，默认 <项目>/data/qishui-credentials.json
   QISHUI_CLIENT_DIR     客户端安装目录
   QISHUI_BDMS_PATH      直接指定 bdms.node
   QISHUI_NODE           指定 node 可执行文件
-  QISHUI_DEVICE_ID      指定设备号（默认读身份缓存文件）
+  QISHUI_DEVICE_ID      指定设备号（默认读身份缓存文件，缺失时按毫秒生成并落盘）
 """
 
 from __future__ import annotations
@@ -29,6 +34,9 @@ import os
 import shutil
 import subprocess
 import sys
+import time
+import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -108,33 +116,103 @@ def find_node() -> str:
     raise SystemExit("未找到 node：装 Node 或设置 QISHUI_NODE")
 
 
-def identity() -> dict:
-    if device := (os.environ.get("QISHUI_DEVICE_ID") or "").strip():
-        return {"device_id": device, "iid": f"{device}1", "fp": device}
-    file = Path(
+def identity_file() -> Path:
+    return Path(
         os.environ.get("QISHUI_IDENTITY_FILE")
         or Path(os.environ.get("APPDATA") or Path.home() / ".config")
         / "HotDownloader"
         / "qishui-identity.json"
     )
+
+
+def identity(explicit: str = "") -> dict:
+    """设备身份与应用侧同源；缺失时按毫秒生成并落盘，保证本机可独立签名。"""
+    device = (explicit or os.environ.get("QISHUI_DEVICE_ID") or "").strip()
+    if device:
+        return {"device_id": device, "iid": f"{device}1", "fp": device}
+    file = identity_file()
     if file.exists():
-        data = json.loads(file.read_text("utf-8"))
+        try:
+            data = json.loads(file.read_text("utf-8"))
+        except (OSError, ValueError):
+            data = {}
         if str(data.get("device_id", "")).strip():
             return data
-    raise SystemExit(f"读不到设备身份：{file}（先跑一次 qishui_login.py client，或用 QISHUI_DEVICE_ID）")
+    device = str(int(time.time() * 1000))
+    payload = {"device_id": device, "iid": f"{device}1", "fp": device}
+    try:
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(json.dumps(payload), "utf-8")
+        try:
+            os.chmod(file, 0o600)
+        except OSError:
+            pass
+        print(f"已生成设备身份：{file}（device {device}）", file=sys.stderr)
+    except OSError:
+        print(f"未能写入设备身份文件，本次使用临时 device {device}", file=sys.stderr)
+    return payload
 
 
-def cookie() -> str:
-    file = Path(
-        os.environ.get("QISHUI_COOKIE_FILE")
-        or project_root() / "data" / "qishui-credentials.json"
+def _client_cookie() -> str:
+    """从本机客户端 Cookie 库读 Cookie，复用 qishui_login.py 的实现（含「退出客户端」提示）。"""
+    try:
+        import qishui_login as ql
+    except ImportError:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        try:
+            import qishui_login as ql  # noqa: F811
+        except ImportError:
+            return ""
+    path = next((item for item in ql.client_cookie_paths() if item.exists()), None)
+    if path is None:
+        return ""
+    cookie, names, _encrypted = ql.cookies_from_client_db(path)
+    if not cookie:
+        return ""
+    missing = [key for key in ql.SESSION_COOKIE_KEYS if key not in names]
+    if missing:
+        print(
+            f"警告：客户端 Cookie 缺 {', '.join(missing)}，可能未登录或登录态没落盘；"
+            "先完全退出客户端后重跑，或 --cookie 显式指定",
+            file=sys.stderr,
+        )
+    print(f"使用本机客户端 Cookie：{path}", file=sys.stderr)
+    return cookie
+
+
+def cookie(explicit: str = "", from_client: bool = False) -> str:
+    """Cookie 来源优先级：--cookie > QISHUI_COOKIE > 凭据文件 > 本机客户端库。"""
+    if explicit.strip():
+        return explicit.strip()
+    env_cookie = (os.environ.get("QISHUI_COOKIE") or "").strip()
+    if env_cookie and not from_client:
+        return env_cookie
+    if not from_client:
+        file = Path(
+            os.environ.get("QISHUI_COOKIE_FILE")
+            or project_root() / "data" / "qishui-credentials.json"
+        )
+        if file.exists():
+            try:
+                raw = file.read_text("utf-8")
+            except OSError as error:
+                raise SystemExit(f"读不到凭据文件：{file}（{error}）") from None
+            try:
+                parsed = json.loads(raw)
+            except ValueError:
+                parsed = {}
+            value = str((parsed or {}).get("cookie", "")).strip() if isinstance(parsed, dict) else ""
+            if not value and raw.strip() and "=" in raw and "\n" not in raw.strip():
+                value = raw.strip()  # 允许直接放一行 Cookie
+            if value:
+                return value
+    client = _client_cookie()
+    if client:
+        return client
+    raise SystemExit(
+        "没有可用 Cookie：客户端未安装/未登录，凭据文件也不存在。"
+        "先 python scripts/qishui_login.py client 落库，或 --cookie '<cookie>' / 设置 QISHUI_COOKIE"
     )
-    if not file.exists():
-        raise SystemExit(f"读不到 Cookie：{file}")
-    value = json.loads(file.read_text("utf-8")).get("cookie", "")
-    if not value:
-        raise SystemExit("凭据文件里没有 cookie")
-    return value
 
 
 def sign(url: str, body: str, headers: dict, bdms: Path, node: str, device_id: str) -> dict:
@@ -165,10 +243,18 @@ def main(argv: list[str]) -> int:
     parser.add_argument("track_id")
     parser.add_argument("--prefer", default="hi_res", help="优先档位，默认 hi_res")
     parser.add_argument("--filename", help="输出文件名，默认按档位推断")
+    parser.add_argument("--cookie", default="", help="显式 Cookie（默认按凭据文件/客户端库自动找）")
+    parser.add_argument(
+        "--cookie-from-client",
+        action="store_true",
+        help="强制从本机汽水客户端 Cookie 库读取（忽略凭据文件与环境变量）",
+    )
+    parser.add_argument("--device-id", default="", help="指定设备号，默认读身份文件")
     args = parser.parse_args(argv)
 
     bdms, node = find_bdms(), find_node()
-    ident, cookie_value = identity(), cookie()
+    ident = identity(args.device_id)
+    cookie_value = cookie(args.cookie, args.cookie_from_client)
     device_id = str(ident.get("device_id"))
 
     params = {
@@ -206,11 +292,23 @@ def main(argv: list[str]) -> int:
     request = urllib.request.Request(
         url, data=body.encode(), method="POST", headers={**headers, **signed}
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        track = json.loads(response.read().decode("utf-8", "replace"))
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            track = json.loads(response.read().decode("utf-8", "replace"))
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", "replace")[:200]
+        raise SystemExit(
+            f"请求 track_v2 失败 HTTP {error.code}：{detail}；"
+            "Cookie 可能已过期——试 --cookie-from-client，或先 python scripts/qishui_login.py client 重新落库"
+        ) from None
+    except urllib.error.URLError as error:
+        raise SystemExit(f"连不上汽水接口：{error.reason}")
     info_url = (track.get("track_player") or {}).get("url_player_info", "")
     if not info_url:
-        raise SystemExit("响应里没有 url_player_info（签名或设备身份可能不被接受）")
+        raise SystemExit(
+            "响应里没有 url_player_info（签名或设备身份可能不被接受）；"
+            "换 --cookie-from-client 重试，或删除身份文件后重跑"
+        )
 
     with urllib.request.urlopen(
         urllib.request.Request(info_url, headers={"User-Agent": "Mozilla/5.0"}), timeout=30
@@ -247,6 +345,11 @@ def main(argv: list[str]) -> int:
         "size": int(best.get("Size") or 0),
         "expiresAt": expire,
     }
+    print(
+        f"档位 {quality or '未知'} · {stream['size']} 字节 · {filename}"
+        + ("" if quality == prefer else f"（首选 {prefer} 不可用，已降级）"),
+        file=sys.stderr,
+    )
     print(json.dumps(stream, ensure_ascii=False))
     return 0
 

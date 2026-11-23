@@ -13,15 +13,20 @@ Chromium Cookie 库。签名（`x-helios`/`x-medusa`）由客户端里的 `bdms.
   python qishui_login.py status                 # 查询应用当前 Cookie 状态
 
 安全约定：Cookie 不打印值；临时副本写 0600，落库成功后请删除。
+运行中提示：汽水客户端开着时 Cookie 库可能被占、登录态也可能没落盘；读不到值（空库 /
+缺 sessionid / 库被锁）时脚本会提示先完全退出客户端（含托盘）再重读，不会自动关进程。
 """
 
 from __future__ import annotations
 
 import argparse
 import base64
+import csv
+import io
 import json
 import os
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import urllib.error
@@ -231,6 +236,83 @@ def client_install_roots() -> list[Path]:
     return roots
 
 
+CLIENT_PROCESS_MARKERS = ("sodamusic", "汽水音乐")
+CLOSE_CLIENT_STEPS = (
+    "请完全退出客户端：托盘图标右键 → 退出（任务管理器里确认没有 SodaMusic 进程），"
+    "再重跑本条命令；读完 Cookie 之后再打开客户端不影响使用。"
+)
+
+
+def client_processes() -> list[tuple[str, str]]:
+    """探测正在运行的汽水客户端进程，返回 [(pid, 名称)]；只读探测，失败就当没运行。"""
+    markers = tuple(marker.replace(" ", "") for marker in CLIENT_PROCESS_MARKERS)
+
+    def hit(name: str) -> bool:
+        normalized = name.lower().replace(" ", "")
+        return any(marker in normalized for marker in markers)
+
+    found: list[tuple[str, str]] = []
+    try:
+        if sys.platform.startswith("win"):
+            completed = subprocess.run(
+                ["tasklist", "/FO", "CSV", "/NH"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            for row in csv.reader(io.StringIO(completed.stdout or "")):
+                if len(row) >= 2 and row[1].strip().isdigit() and hit(row[0]):
+                    found.append((row[1].strip(), row[0].strip()))
+        else:
+            completed = subprocess.run(
+                ["ps", "-Ao", "pid=,command="],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
+            )
+            for line in (completed.stdout or "").splitlines():
+                parts = line.strip().split(None, 1)
+                if len(parts) == 2 and parts[0].isdigit() and hit(parts[1]):
+                    found.append((parts[0], Path(parts[1].split()[0]).name))
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return []
+    return found
+
+
+def client_running_note() -> str:
+    """客户端正在运行时返回一段可执行提示；没在运行返回空串。"""
+    procs = client_processes()
+    if not procs:
+        return ""
+    names = "、".join(f"{name}(PID {pid})" for pid, name in procs[:3])
+    if len(procs) > 3:
+        names += f" 等 {len(procs)} 个进程"
+    return (
+        f"检测到汽水音乐客户端正在运行：{names}。"
+        "客户端运行时 Cookie 库被占用、最新登录态也可能还没写盘，读到空值或缺 sessionid 多半是这个原因。"
+        + CLOSE_CLIENT_STEPS
+    )
+
+
+def close_client_advice() -> str:
+    """一行版提示，供自检脚本与文档复用。"""
+    return (
+        "先完全退出汽水音乐客户端（托盘右键退出，任务管理器确认没有 SodaMusic 进程）再重跑；"
+        "客户端运行时 Cookie 库被占用、登录态未落盘，常读不到值或缺 sessionid"
+    )
+
+
+def with_client_hint(message: str) -> str:
+    """给报错补上「客户端在运行」的提示；不在运行就原样返回。"""
+    note = client_running_note()
+    return f"{message}\n{note}" if note else message
+
+
 def find_js_runtime() -> str:
     """签名可用的 JS 运行时：QISHUI_NODE > PATH 里的 node > 客户端自带 Electron。"""
     pinned = (os.environ.get("QISHUI_NODE") or "").strip()
@@ -271,20 +353,47 @@ def read_locked_bytes(path: Path) -> bytes:
 
 
 def cookies_from_client_db(path: Path) -> tuple[str, list[str], list[str]]:
-    """返回 (cookie 串, 用到的键名, 仍被加密的键名)。"""
-    raw = read_locked_bytes(path)
+    """返回 (cookie 串, 用到的键名, 仍被加密的键名)。
+
+    客户端运行时库可能被占、或最新登录态还压在 WAL 里没落盘；这类失败都要带上
+    「先完全退出客户端」的提示，不吞原始原因。
+    """
+    try:
+        raw = read_locked_bytes(path)
+    except SystemExit as error:
+        raise SystemExit(with_client_hint(str(error))) from None
+    except OSError as error:
+        raise SystemExit(with_client_hint(f"读取客户端 Cookie 库失败：{path}（{error}）")) from None
+    if not raw:
+        raise SystemExit(with_client_hint(f"客户端 Cookie 库是空的：{path}（客户端可能正在写入）"))
+
+    temp_path = ""
     connection = sqlite3.connect(":memory:")
     try:
-        connection.deserialize(raw)
-    except AttributeError:
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as handle:
-            handle.write(raw)
-            temp_path = handle.name
-        connection = sqlite3.connect(temp_path)
-    rows = connection.execute(
-        "select host_key, name, value, length(encrypted_value) from cookies"
-        " where host_key like '%qishui%' order by name"
-    ).fetchall()
+        try:
+            connection.deserialize(raw)
+        except (AttributeError, sqlite3.DatabaseError):
+            # 老 Python 没有 deserialize，或主库不含 WAL 里的新数据：落只读副本再试
+            with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as handle:
+                handle.write(raw)
+                temp_path = handle.name
+            connection.close()
+            connection = sqlite3.connect(temp_path)
+        rows = connection.execute(
+            "select host_key, name, value, length(encrypted_value) from cookies"
+            " where host_key like '%qishui%' order by name"
+        ).fetchall()
+    except sqlite3.DatabaseError as error:
+        raise SystemExit(
+            with_client_hint(f"解析客户端 Cookie 库失败：{path}（{error}）；库可能正在被客户端写入")
+        ) from None
+    finally:
+        connection.close()
+        if temp_path:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
     plain: list[tuple[str, str]] = []
     encrypted: list[str] = []
     for _host, name, value, encrypted_len in rows:
@@ -307,17 +416,34 @@ def cmd_client(args) -> int:
             "未找到汽水客户端 Cookie 库：本机可能没有安装客户端，或从未登录过；"
             "也可用 --cookie-db 指定路径"
         )
+    procs = client_processes()
+    if procs:
+        print(
+            f"注意：汽水音乐客户端正在运行（{len(procs)} 个进程）。"
+            "若下面读到空值/缺 sessionid，按提示完全退出客户端再试。"
+        )
     cookie, names, encrypted = cookies_from_client_db(path)
     print(f"已读取客户端 Cookie 库：{path}")
     print(f"  键名（{len(names)} 个）: {', '.join(names) if names else '无'}")
     if encrypted and not cookie:
         raise SystemExit(
-            "该库的 Cookie 值是加密的（Chromium v10/v11），需要 DPAPI + AES-GCM 解密；"
-            "这条路径暂未实现，请改用其它方式获取 Cookie"
+            with_client_hint(
+                "该库的 Cookie 值是加密的（Chromium v10/v11），需要 DPAPI + AES-GCM 解密；"
+                "这条路径暂未实现，请改用其它方式获取 Cookie"
+            )
+        )
+    if not cookie:
+        raise SystemExit(
+            with_client_hint(
+                f"客户端 Cookie 库里没有可用 Cookie：{path}。"
+                "要么客户端里还没登录，要么登录态还没写盘"
+            )
         )
     missing = [key for key in SESSION_COOKIE_KEYS if key not in names]
     if missing:
         print(f"  注意：缺少会话键 {', '.join(missing)}，客户端里可能没有登录")
+        if procs:
+            print("        客户端正在运行，登录态可能还没落盘：完全退出客户端后重跑一次再判断。")
     print(f"  Cookie 摘要: {mask(cookie)}")
 
     state_dir = Path(args.dir)
