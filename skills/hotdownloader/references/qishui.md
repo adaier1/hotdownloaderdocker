@@ -44,12 +44,18 @@ Cookie 只能从本机客户端读，签名只能由本机 `bdms.node` 生成。
    - macOS：`/Applications/SodaMusic.app/Contents/**/bdms.node`；
    - 也可显式指定 `QISHUI_CLIENT_DIR` 或 `QISHUI_BDMS_PATH`。
 3. **找不到客户端就到此为止**：「本机没有安装汽水音乐客户端，无法获取 Cookie 和签名；请先安装并登录（`https://www.qishui.com/download`）。」
-4. 读 Cookie 并落库（脚本自动探测三平台路径，Windows 下用共享标志绕过客户端独占锁，**不用关客户端、不改任何文件**）：
+4. 读 Cookie 并落库（脚本自动探测三平台路径，Windows 下用共享标志绕过客户端独占锁，正常情况下**不用关客户端、不改任何文件**）：
 
    ```bash
    python scripts/qishui_login.py client --mcp
    # 只读不写：去掉 --mcp；走 REST：--write；指定库：--cookie-db <path>
    ```
+
+   **例外：客户端运行时可能读不到。** 客户端会把最新登录态压在 WAL 里、库也可能被占用，此时脚本读到的是空值/旧值或缺 `sessionid`。脚本会自己探测进程，并明确提示：
+
+   > 检测到汽水音乐客户端正在运行：SodaMusic.exe(PID …)。……请完全退出客户端：托盘图标右键 → 退出（任务管理器里确认没有 SodaMusic 进程），再重跑本条命令。
+
+   照做即可（**托盘也要退，只关主窗口不算**）；读完 Cookie 再把客户端打开，不影响之后使用。agent 遇到这个提示**不要反复重试**，先让用户退客户端，再跑一次。
 
 5. 判据：读到的键名必须含 `sessionid` / `sid_guard`；`qishui_login.py status` 应返回 `configured: true`。
 
@@ -57,30 +63,63 @@ Cookie 只能从本机客户端读，签名只能由本机 `bdms.node` 生成。
 
 ### 3. 配签名器（本机自动，Docker 走远程）
 
+> 只下载**不需要**配服务端签名器：下载走下面「本机解析直链」，签名在解析那一刻就完成了。这里配的是**服务端**签名，服务于 `search_songs`、`parse_link` 看多档详情。
+
 - **本机**（服务直接跑在 Windows，不经 Docker）：进程内调 `bdms.node`。运行时优先 `QISHUI_NODE`，其次 PATH 的 `node`，最后客户端自带 Electron。装过客户端就自动可用，`mode: local`。
 - **远程**（Docker/服务器）：`QISHUI_SIGNER_URL` 指向宿主机签名服务，`mode: remote`。详见下一节。
 
+签名只依赖磁盘上的 `bdms.node`，**客户端开着也能签**；需要退出客户端的是上一步「读 Cookie」。推荐顺序：退客户端取 Cookie → 落库 → 再打开客户端 → 配/测签名器。
+
 签名是**逐请求**的（绑定 url / method / body / headers / ts_ms），不能跨请求复用；能缓存的是设备身份（进程内）与详情结果（2 分钟）。
+
+## 下载默认路径：本机解析直链，服务端只下载
+
+**agent 下汽水，一律先本机出直链。** 服务端（Docker / 公网）没有 `bdms.node`，让它自己签名取流只能拿到低档；本机有 Cookie + `bdms.node`，能拿到 `hi_res` / `spatial` 并把 CDN 直链直接交给服务端。
+
+| 场景 | 走哪条 | 要 8899 常驻吗 |
+| --- | --- | --- |
+| **agent 下汽水** | 本机 `qishui_stream.py` → `stream` 投递 | ❌ |
+| Web UI 下汽水（3 档 AAC） | 服务端直接请求 | ❌ |
+| 服务端搜汽水（MCP `search_songs`）/ 看 `hi_res` 档位 | 服务端签名（常驻或 remote） | ✅ |
+| 其它平台的全部操作 | 服务端自签 | ❌ |
+
+标准三步：
+
+```bash
+# 1) 本机解析（一次性，装客户端 + Node 即可，用完即退）
+python scripts/qishui_stream.py <track_id>
+# stderr：档位 hi_res · 8414936 字节 · 320.m4a
+# stdout：{"url":"…","playAuth":"…","filename":"320.m4a","size":8414936,"expiresAt":0}
+```
+
+```jsonc
+// 2) 直链原样作为 create_download_task 的 stream
+{"song": { /* parse_link 结果 */ }, "desiredQuality": "320kaac",
+ "stream": {"url": "…", "playAuth": "…", "filename": "320.m4a", "size": 8414936, "expiresAt": 0}}
+// 3) list_tasks 看进度；失败且提示过期就回第 1 步重新解析
+```
+
+要点：
+
+- **Cookie 来源**：`--cookie` > `QISHUI_COOKIE` > `data/qishui-credentials.json` > 本机客户端库（`--cookie-from-client` 强制走最后一条）。客户端在跑且读不到会提示先退客户端。
+- **设备身份**：默认读 `%APPDATA%\HotDownloader\qishui-identity.json`；没有就按毫秒生成并落盘，和应用侧一致，不需要先跑应用。
+- **风格**：`--prefer` 默认 `hi_res`（实测 `spatial` 在无 Cookie 的服务器上会被降级）；`--filename` 可覆盖输出名。
+- **带 `stream` 时服务端不再校验音质、也不再请求平台**：任务音质取 `stream.filename` 的主干，所以 `desiredQuality` 只是占位。
+- **过期**：`expiresAt` 到点后建任务会直接是 `error`（提示重新投递）；解析完尽快投。
+- 只有本机没有客户端 / `bdms.node` 时，才退回让服务端自签（低档、无搜索）。
+
+脚本用 `node -e` 调一次 `bdms.node` 就退出，不监听端口、不占内存、不需要保活。换句话说：**装客户端 + Node 仍然要，但"一直开着终端"可以不要**。
 
 ## 要不要常驻一个签名服务？分场景
 
-| 场景 | 需要 8899 常驻进程吗 |
-| --- | --- |
-| Web UI 解析分享链接 + 下载（3 档 AAC） | ❌ 不需要 |
-| Web UI 想看到 `spatial` / `hi_res` 档位 | ✅ 需要（服务端自己取详情才有多档） |
-| agent 在服务端搜汽水（MCP `search_songs`） | ✅ 需要 |
-| agent 下汽水（本机解析 → 直链投递） | ❌ 不需要 |
-| 其它平台的全部操作 | ❌ 不需要 |
-
-**推荐做法：不常驻。** 解析放在本机、一次性完成，把直链投给服务器：
+常驻只服务于**服务端侧的搜索与详情**（`search_songs`、想看到多档 `qualities`）。纯下载不需要它——那部分已被上面的直链投递覆盖。
 
 ```bash
-python scripts/qishui_stream.py <track_id>
-# 输出 {"url":"…","playAuth":"…","filename":"320.m4a","size":8414936,"expiresAt":0}
-# 直接作为 create_download_task 的 stream 参数
+# 需要常驻时才跑（宿主机，不是容器）
+QISHUI_SIGNER_TOKEN=<自定义token> node scripts/qishui-signer-server.mjs
 ```
 
-脚本用 `node -e` 调一次 `bdms.node` 就退出，不监听端口、不占内存、不需要保活。换句话说：**装客户端 + Node 仍然要，但"一直开着终端"可以不要**。
+代价是宿主机上那个 node 终端不能关：一关容器就搜不到（不报错，只是静默退化）。所以推荐：**默认不常驻，只有要 agent 在服务端搜汽水时才开**。
 
 ## 签名服务跑在哪：宿主机，不在容器里
 
@@ -109,23 +148,16 @@ QISHUI_SIGNER_URL=http://host.docker.internal:8899/sign
 QISHUI_SIGNER_TOKEN=<自定义token>
 ```
 
-验证：`curl -u <账号>:<密码> http://127.0.0.1:8791/api/qishui/signer` 应返回 `{"available":true,"mode":"remote"}`；账号页汽水卡片的「签名器」一行也会显示对应状态。
+验证：`curl -u <账号>:<密码> $BASE/api/qishui/signer` 应返回 `{"available":true,"mode":"remote"}`；账号页汽水卡片的「签名器」一行也会显示对应状态。`$BASE` 由 MCP 接入地址去掉 `/mcp?key=…` 得到（见 SKILL.md「服务地址」），不要写死端口，跟着 MCP 接入地址走。
 
-## 公网部署：直链投递（服务端零签名、零 Cookie）
+## 直链投递的收益与代价
 
-公网服务器上没有 `bdms.node`，也可能不该持有你的账号。让**能签名的机器先把音源解析出来**，再把直链随任务投给服务器：
+收益：服务端零签名、零 Cookie——公网机器被入侵也拿不到你的账号。代价：服务端失去「降级重取」能力，失败只能请本机重新解析投递。
 
-```jsonc
-// create_download_task 的 stream 参数
-{"song": { /* parse_link 结果 */ }, "desiredQuality": "320kaac",
- "stream": {"url": "https://v5-xxx.douyinvod.com/…", "playAuth": "",
-            "filename": "320.m4a", "size": 8414936, "expiresAt": 0}}
-```
-
-1. **优先 `hi_res` / `highest`，别选 `spatial`**：实测 `spatial` 的地址在无 Cookie 的服务器上会被降级成低档（字节数对不上）；选 `hi_res` 时服务端拿到的 8,414,936 与本机一致。
+1. **优先 `hi_res` / `highest`，别选 `spatial`**：实测 `spatial` 的地址在无 Cookie 的服务器上会被降级成低档（字节数对不上）；`hi_res` 时服务端拿到的 8,414,936 与本机一致。
 2. **`expiresAt` 过期**：建任务时直接标错误并提示重新解析；排队久了要重投。
-3. **服务器可完全不配 Cookie**：CDN 直链与免签解析都不需要登录态，公网机器被入侵也拿不到你的账号。
-4. **代价**：服务器失去"降级重取"能力，失败只能请本机重投。
+3. **服务器可完全不配 Cookie**：CDN 直链不需要登录态。
+4. **搜索仍走服务端**：`search_songs` 没有 `bdms.node` 时只能免签兜底；搜不出来就先本机解析分享链接拿 `mid`，再按上面的方式投直链。
 
 ## 代码位置（维护用）
 
@@ -145,7 +177,11 @@ QISHUI_SIGNER_TOKEN=<自定义token>
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
 | `client` 报"未找到 Cookie 库" | 没装 / 没登录过 / 非默认路径 | 装并登录客户端，或 `--cookie-db` 指定 |
-| `client` 报缺 `sessionid` | 客户端未登录 | 先在客户端里登录 |
+| `client` 报"客户端正在运行 / 库是空的 / 缺 `sessionid`" | 客户端没退干净，Cookie 库被占或登录态没落盘 | 托盘右键完全退出客户端（任务管理器确认无 SodaMusic），再重跑一次 |
+| `client` 报"解析 Cookie 库失败 / file is not a database" | 读到的库不完整（客户端正在写，或只拷了主库没带 WAL） | 退出客户端后重跑；别只拷 `Cookies` 文件 |
+| `qishui_stream.py` 报 HTTP 4xx / 没返回 `url_player_info` | 用的 Cookie 已过期，或设备身份与签名不匹配 | `--cookie-from-client` 重试；仍失败删 `qishui-identity.json` 后重跑 |
+| `qishui_stream.py` 报"未找到 bdms.node / node" | 没装客户端或没装 Node | 装客户端（或 `QISHUI_BDMS_PATH`）；`QISHUI_NODE` 指到自带 Electron |
+| `client` 报缺 `sessionid`（已退客户端） | 客户端里确实没登录 | 打开客户端登录，再退出客户端后重读 |
 | Cookie 存了但搜索为空 | 缺签名 | `GET /api/qishui/signer` 看 `available`，起签名服务 |
 | 签名器 `available:false` | 没 `bdms.node` / 没 JS 运行时 / 远程 URL 没配 | 装客户端或 Node；或配 `QISHUI_SIGNER_URL` |
 | 报"空响应（签名头或设备身份未被接受）" | 设备身份与签名器不一致 | 删 `qishui-identity.json` 后重启进程 |
