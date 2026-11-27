@@ -36,8 +36,8 @@ downloads/
 __pycache__/
 *.py[cod]
 
-# Test files
-tests/
+# Test files（仅忽略仓库根的临时测试目录；skills/**/tests 是技能的一部分，需要提交）
+/tests/
 
 # Docs
 docs/

@@ -343,16 +343,43 @@ MCP 侧的登录流程与网页一致，但二维码是**直接作为图片返�
 
 ## 🧩 配套 Skill（让 agent 按套路用起来）
 
-仓库里带了一份 **agent 使用手册**：`skills/hotdownloader/`。它不是插件、不改运行逻辑，而是把「怎么搜索、怎么解析、怎么建任务、平台差异、排错」固化成 Agent Skill，让 Claude / Codex / WorkBuddy 这类客户端不需要每次重新摸索。
+仓库里带了一份 **agent 使用手册**：`skills/hotdownloader/`。它不是插件、不改运行逻辑，而是把「怎么判断意图、怎么匹配资源、怎么选音质、怎么批量下、怎么排错」固化成 Agent Skill，让 Claude / Codex / WorkBuddy 这类客户端不需要每次重新摸索。
 
 ```
 skills/hotdownloader/
-├── SKILL.md              入口：搜索 / 解析 / 下载 / 任务 / 账号 / 排错
+├── SKILL.md              入口：意图路由 + 通道决策 + 硬规则（约 170 行）
 ├── INSTALL.md            安装说明（给 agent 照着执行 / 也给人看）
-└── references/
-    ├── qishui.md         汽水专项（客户端 Cookie、签名、直链投递）
-    └── signer.md         签名与 App 端请求契约
+├── CHANGELOG.md          版本变更（含接口修正记录）
+├── references/           14 篇业务细节，按需加载
+│   ├── architecture.md       分层、MCP/HTTP 决策树、代码位置
+│   ├── mcp-tools.md          33 个 MCP 工具的真实参数与返回
+│   ├── http-api.md           真实路由表 + 与 MCP 的能力差异
+│   ├── search.md             搜索参数、分页、平台能力矩阵
+│   ├── resource-matching.md  同名结果怎么挑
+│   ├── quality-selection.md  音质标签、降级顺序、降级告知
+│   ├── download-workflow.md  建任务字段与边界条件
+│   ├── batch-download.md     歌单/专辑的调度、去重、报告
+│   ├── task-management.md    七种状态、动作前置条件、异常树
+│   ├── library-management.md 曲库查询、去重、改名、写标签
+│   ├── account-management.md 四平台登录方式
+│   ├── qishui.md             汽水专项（客户端 Cookie、签名、直链投递）
+│   ├── signer.md             签名与 App 端请求契约
+│   └── troubleshooting.md    按层定位的排错表
+└── tests/
+    ├── validate_skill.py       文档里的工具名/HTTP 路径 ↔ Rust 源码交叉校验
+    ├── validate_references.py  references 结构完整性
+    └── test_workflows.md       人工验收用例（A–K 共 53 条，K 组为线上实测回归）
 ```
+
+主文档只讲"怎么判断、怎么规划、怎么调用"，细节按需加载——这是刻意的：把整个手册塞进一个超大提示词反而会让模型抓不住重点。
+
+`tests/validate_skill.py` 会直接从 `crates/hotdownloader-server/src/mcp.rs` 和 `http.rs` 提取真实的工具名与路由，再和文档里的引用逐条比对，**文档写了不存在的接口就会报错**：
+
+```bash
+python skills/hotdownloader/tests/validate_skill.py
+# [OK] skill 文档与源码一致
+```
+
 
 它调用的能力就是本文档里的 MCP 工具与 `/api/*` 接口，配套脚本在仓库 `scripts/` 下：
 
@@ -401,7 +428,7 @@ cp -r skills/hotdownloader ~/.workbuddy/skills/          # macOS / Linux
 
 装好后对 agent 说一句「用 hotdownloader 技能帮我在服务端解析这条网易云链接并下载」即可；技能会自动先跑自检、判断平台登录态，再决定走 MCP 还是 HTTP。
 
-> 触发词：HotDownloader 怎么用、搜索歌曲、解析分享链接、建下载任务、汽水音乐、QQ音乐链接、网易云链接。
+> 触发词：下载歌曲、搜歌、下歌单、批量下载、这个链接帮我下、最高音质、无损、下载进度、任务失败重试、曲库整理、汽水音乐、QQ 音乐链接、网易云链接。
 
 ---
 

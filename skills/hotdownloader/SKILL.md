@@ -1,30 +1,33 @@
 ---
 name: hotdownloader
-display_name: HotDownloader 使用（搜索 / 解析 / 下载）
-display_name_en: HotDownloader Usage (search, parse, download)
-description: HotDownloader 的日常使用技能：怎么搜索、怎么解析分享链接、怎么建下载任务、怎么管任务与曲库，以及各平台的能力差异和登录前置条件。所有能力都通过 MCP 工具（search_songs / parse_link / create_download_task / list_tasks …）或 `/api/music/*` HTTP 接口调用；服务地址一律由 MCP 接入地址推导（见「服务地址」一节），文档里不写死端口。含按平台的搜索能力矩阵、音质标签约定（不是文件名）、批量与降级规则、汽水音乐专项（客户端 Cookie + bdms.node 签名，下载优先本机解析直链投递，见 references/qishui.md）、签名协议（references/signer.md）、以及搜不到/建不了任务/下载失败的排错表。触发词：HotDownloader 怎么用、搜索歌曲、解析分享链接、下载这首歌、建下载任务、批量下载、任务失败、汽水音乐、网易云链接、QQ音乐链接、MCP 工具、qishui、hotdownloader。
-version: 1.2.0
+display_name: HotDownloader 智能音乐下载
+display_name_en: HotDownloader Music Download Assistant
+description: 把用户的音乐需求变成可执行的下载任务并盯到完成：判断意图、搜索与匹配资源、解析分享链接、按音质规则决策、创建与管理下载任务、批量处理歌单专辑、诊断失败原因、管理曲库与账号。能力全部来自 HotDownloader 服务（MCP 工具优先，/api/* HTTP 接口备用，服务地址由 MCP 接入地址推导），不修改后端。含五平台（QQ 音乐 / 网易云 / 酷狗 / 酷我 / 汽水）能力矩阵、真实音质标签与降级顺序、七种任务状态与异常处理树、汽水音乐本机直链投递与签名、以及文档与源码一致性的自检脚本。触发词：下载歌曲、搜歌、搜歌手、下歌单、批量下载、这个链接帮我下、最高音质、无损、下载进度、任务失败重试、曲库整理、汽水音乐、网易云链接、QQ 音乐链接、HotDownloader。
+version: 2.0.0
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 examples_zh:
-  - "帮我在 HotDownloader 里搜一下周杰伦"
-  - "这条网易云分享链接帮我在服务端解析并下载"
-  - "批量把这张歌单加到下载队列"
+  - "帮我把周杰伦的晴天下载成无损"
+  - "这条网易云分享链接解析一下，能下就直接下"
+  - "把这张歌单整张加到下载队列，已经有文件的跳过"
+  - "看下下载进度，失败的挑出来重试"
   - "汽水音乐怎么登录、怎么下高音质"
 ---
 
-# HotDownloader：搜索 / 解析 / 下载
+# HotDownloader：从需求到下载完成
 
-所有操作都走两条等价通道：
+你不是"API 调用翻译器"。用户说的是"下这首无损"，你要自己完成：**判断意图 → 查可用资源 → 匹配到唯一那首 → 按音质规则选档 → 建任务 → 盯状态 → 处理失败 → 汇报结果**。
 
-- **MCP 工具**（agent 用，推荐）：`search_songs`、`parse_link`、`create_download_task`……
-- **HTTP 接口**（脚本/调试用）：`POST /api/music/{action}`、`POST /api/tasks`，Basic 认证取 `.env` 的 `AUTH_USERNAME/AUTH_PASSWORD`，地址用下文的 `$BASE`。
+主文档只讲**怎么判断、怎么规划、怎么调用**。每类业务的细节在 `references/` 里按需读，不要一次性全读。
 
-## 服务地址：跟着 MCP 接入地址走
+## 三条铁律
 
-**不要写死端口。** 服务根地址（下面统一叫 `$BASE`）= 当前 `~/.workbuddy/mcp.json` 里 `hotdownloader` 那条的 `url`，去掉结尾的 `/mcp` 和后面的 `?key=…`。MCP 换成公网/别的端口，`$BASE` 自动跟着变，HTTP 接口和它永远同源。
+1. **先定意图，再选工具。** 同一句"晴天"可能是搜索、下载、查进度。没有确定意图前不要调写操作。
+2. **先解析，再下载。** 所有建任务都用 `parse_link` 或搜索返回的**完整 song 对象**（必须含 `qualities`），不要自己拼 `song`。
+3. **音质传标签，不传文件名。** `desiredQuality` 是 `320kaac` / `flac` / `hires` 这类标签；传 `320.m4a` 会直接判"所选音质不可用"。
+
+## 第 0 步：确认服务可用（每次会话一次即可）
 
 ```bash
-# 优先用 python 精确解析（Windows 的 python / py 均可）
 BASE=$(python - <<'PY'
 import json, os, re
 p = os.path.expanduser("~/.workbuddy/mcp.json")
@@ -32,205 +35,104 @@ url = json.load(open(p, encoding="utf-8")).get("mcpServers", {}).get("hotdownloa
 print(re.sub(r"/mcp.*$", "", url).rstrip("/"))
 PY
 )
-
-# 没有 python 时用 grep 兜底
-# BASE=$(grep -A5 '"hotdownloader"' ~/.workbuddy/mcp.json | grep -oE 'https?://[^"]+' | head -1 | sed -E 's#/mcp.*$##')
-
-echo "$BASE"     # 例：http://127.0.0.1:9099 或 https://music.example.com
-curl -s "$BASE/healthz"
+curl -s "$BASE/healthz"    # {"status":"ok"}
 ```
 
-取不到 `$BASE` 时才回退：`.env` 的 `WEB_PORT`（本机部署），或 `docker ps` 里的端口映射。**任何情况下都不要套用文档里的示例地址**——示例只是形状，真实地址只有 MCP 配置和服务端知道。
+`$BASE` 只从 MCP 接入地址推导（去掉 `/mcp` 和 `?key=`），**不要写死端口**，也不要用文档里的示例地址。取不到时兜底：`.env` 的 `WEB_PORT`；再不行问用户部署地址。
 
-## 开始前：三步确认
+同时确认两件事（缺一不可）：
 
-```bash
-curl -s "$BASE/healthz"              # 1. 服务在跑（$BASE 先按上一节取好）
-```
+- **MCP 是否连通**：调 `list_accounts` 能返回平台列表即通；不通看 `references/architecture.md` 的「MCP 连不上」。
+- **各平台登录态**：同一份 `list_accounts` 结果里看 `loggedIn` / `note`。未登录常见后果：搜不到、只有试听、高音质拿不到。
 
-2. **MCP 是否连通**：调用 `list_accounts`，能返回平台列表即连通。没连通看「MCP 配置」一节。
-3. **平台登录态**：同一份 `list_accounts` 结果里看各平台 `loggedIn`／`note`。某些平台不登录就只能拿试听或干脆搜不到（见下方矩阵）。
+## 意图路由表
 
-## 怎么搜索
+先归到下面一类，再按对应文档执行。**跨类时按顺序做**（如"下载这个歌单的最高音质" = 歌单下载 → 音质决策）。
 
-| 工具 | 用途 | 关键参数 |
+| 用户说法 | 意图 | 执行主线 | 细节 |
+| --- | --- | --- | --- |
+| 搜一下 / 有没有 / 帮我找 | 搜索 | `search_songs` 等 → 结果表 | `references/search.md` |
+| 下载 X / 下这首 / 要这首 | 单曲下载 | 搜索 → 匹配唯一 → `parse_link` 补档 → 建任务 | `references/resource-matching.md` |
+| 这个链接 / 这段分享文案 | 链接下载 | `parse_link` → 按 `kind` 分流 | `references/download-workflow.md` |
+| 整张歌单 / 专辑 / 这个歌手全部 | 批量下载 | 取列表 → 去重 → 分批建任务 → 汇总报告 | `references/batch-download.md` |
+| 最高音质 / 无损 / 320 / 随便 | 音质指定 | 查实际档位 → 决策表选档 → 建任务 | `references/quality-selection.md` |
+| 下到哪了 / 进度 / 失败了没 | 任务查询 | `list_tasks` → 状态汇总表 | `references/task-management.md` |
+| 重试 / 继续 / 暂停 / 删掉 | 任务控制 | 动作前置条件校验 → 执行 → 复核 | `references/task-management.md` |
+| 我下过什么 / 清理 / 改名 / 去重 | 曲库 | `list_library` → 操作 | `references/library-management.md` |
+| 登录 / 扫码 / Cookie / 账号失效 | 账号 | `list_accounts` → 对应登录方式 | `references/account-management.md` |
+| 汽水 / 报错 / 下不下来 | 诊断 | 按异常树定位 → 给结论 | `references/troubleshooting.md` |
+
+## 通道规则（MCP 优先，HTTP 备用）
+
+| 情况 | 选哪条 | 原因 |
 | --- | --- | --- |
-| `search_songs` | 搜歌曲 | `platform, keyword, page, limit` |
-| `search_albums` | 搜专辑 | 同上 |
-| `search_artists` | 搜歌手 | 同上 |
-| `search_playlists` | 搜歌单 | 同上 |
-| `fetch_album_songs` / `fetch_artist_songs` / `fetch_artist_albums` / `fetch_playlist_songs` | 按 ID 或链接取内容 | `platform, id\|input, page, limit` |
-| `fetch_hot_keywords` / `fetch_suggestions` | 热搜词 / 联想 | `platform` |
+| 有对应 MCP 工具且调用成功 | **MCP** | 参数已校验，返回结构化 |
+| MCP 工具不存在（如汽水详情、签名器状态、运行日志） | HTTP `/api/*` | 这些能力只在 REST 暴露 |
+| MCP 返回**业务错误**（音质不可用 / 任务不存在 / 未登录） | **不要**转 HTTP 重试 | 换个通道只会得到同样错误，还可能重复建任务 |
+| MCP 连不上 / 认证失败 | HTTP | 同一套核心逻辑，结果等价 |
 
-平台能力矩阵（代码里真实存在的分支）：
+**副作用去重**：`create_download_task`、`remove_task`、`pause_task` 等写操作，一次判断只调一次。MCP 超时/无响应时先 `list_tasks` 查是否已生效，**不要直接重发**。批量场景见 `references/batch-download.md` 的并发上限。
 
-| 平台 | 歌曲 | 专辑 | 歌手 | 歌单 | 个人歌单 |
-| --- | --- | --- | --- | --- | --- |
-| netease | ✅ | ✅ | ✅ | ✅ | ✅ |
-| qqmusic | ✅ | ✅ | ✅ | ✅ | ✅ |
-| kugou | ✅ | ✅ | ✅ | ✅ | ❌ |
-| kuwo | ✅ | ✅ | ✅ | ✅ | ❌ |
-| qishui | ✅（需签名） | ❌ | ❌ | ❌ | ❌ |
+## 统一结果契约
 
-返回结构（`search_songs`）：
-
-```json
-{"has_more": false, "songs": [
-  {"mid": "6696534426169378817", "title": "布拉格广场", "artist": "蔡依林、周杰伦",
-   "album": "看我72变", "coverUrl": "https://…", "duration": 294,
-   "qualities": [{"quality": "320kaac", "filename": "320.m4a", "size": 8414936}]}
-]}
-```
-
-注意：
-
-- **搜索结果里的 `qualities` 可能只是占位档位**（汽水固定给 128kaac）。要准确档位就先 `parse_link` 拿详情。
-- 汽水第 2 页起返回空（游标无法由页码推导），其它平台正常分页。
-- 汽水搜索依赖本机签名，公网服务器默认搜不了 —— 见 `references/qishui.md`。
-
-## 怎么解析
-
-`parse_link` 接受任意平台的**分享链接、整段分享文案或纯 ID**，平台由内容自身判断，无需先选平台：
-
-```jsonc
-// 入参
-{"input": "https://music.163.com/song?id=1974443814"}
-// 入参也可带兜底平台（链接识别不出来时）
-{"input": "1974443814", "platform": "netease"}
-```
-
-返回：
-
-```json
-{"platform": "netease", "kind": "song",
- "data": {"song": {"mid": "1974443814", "title": "我记得", "artist": "赵雷",
-   "qualities": [{"quality": "128kmp3", …}, {"quality": "320kmp3", …}, {"quality": "flac", "size": 65211331}]}}}
-```
-
-- `kind` 可能是 `song` / `playlist` / `album` 等，歌单类结果要再用 `fetch_playlist_songs` 或直接遍历。
-- 解析结果**可直接喂给 `create_download_task`**，这是最稳的"链接 → 下载"路径。
-- 汽水短链（`qishui.douyin.com/s/xxx`）也支持，内部会跟随跳转。
-
-## 怎么下载
-
-### 汽水音乐：优先「本机出直链 → 服务端下载」
-
-服务端一般没有 `bdms.node`（Docker / 公网），让它自己签名取流只会拿低档。**汽水下载默认走这条**：在装了客户端的那台机器上，用客户端 Cookie + `bdms.node` 把直链解析出来，再把直链投给服务端。
-
-```bash
-# 1) 本机执行（装了汽水客户端并登录过的那台机器）
-python scripts/qishui_stream.py <track_id>
-# stderr：档位 hi_res · 8414936 字节 · 320.m4a
-# stdout：{"url":"https://…","playAuth":"…","filename":"320.m4a","size":8414936,"expiresAt":0}
-```
-
-```jsonc
-// 2) 那行 JSON 原样作为 stream，song 用 parse_link 的结果
-{"song": { /* parse_link 的 song，含 mid/qualities */ },
- "desiredQuality": "320kaac",   // 带 stream 时只是占位，服务端不校验、不取流
- "stream": {"url": "…", "playAuth": "…", "filename": "320.m4a", "size": 8414936, "expiresAt": 0}}
-```
-
-- `track_id` 取 `parse_link` 或 `search_songs` 里的 `song.mid`；
-- Cookie 自动取：`--cookie` > `QISHUI_COOKIE` > `data/qishui-credentials.json` > 本机客户端库；客户端在跑且读不到时按提示先退客户端；
-- **带 `stream` 后服务端只负责下载**：不请求平台、不校验音质列表，任务音质取 `stream.filename` 的主干；
-- `expiresAt` 过期会建成 `error` 任务并提示重新投递，所以解析完尽快建任务；
-- 本机没有客户端 / `bdms.node` 才退回服务端自签（只能低档）。详见 `references/qishui.md`。
-
-### 其它平台（以及通用参数）
-
-`create_download_task` 三个必填项 + 一个可选直链：
-
-```jsonc
-{
-  "song": { /* parse_link 或 search_songs 返回的歌曲对象，必须含 qualities */ },
-  "desiredQuality": "320kaac",          // 传「音质标签」，不是文件名
-  "duplicateAction": "rename",          // overwrite / rename / cancel，可省略
-  "stream": { "url": "…", "filename": "320.m4a", "size": 8414936 }  // 可选，见下
-}
-```
-
-**最容易错的一点：`desiredQuality` 要传音质标签**（`320kaac`、`flac`、`320kmp3`），传文件名（`320.m4a`）会在建任务阶段直接判「所选音质不可用」。带 `stream` 时不受此限（服务端不校验），但为了任务记录好看仍建议传对应标签。
-
-返回 `outcome` 语义：
+建任务返回 `outcome`，必须按它决定下一步，不能一律当成功：
 
 | outcome | 含义 | 下一步 |
 | --- | --- | --- |
-| `created` | 任务已入队 | 用 `list_tasks` 看进度 |
-| `existing` | 已有同曲任务，返回旧的 | 需要重下就带 `duplicateAction: "overwrite"` |
-| `needs_confirmation` | 同名文件已存在，等你选 | 带上 `duplicateAction` 重新调用 |
-| `cancelled` | 你选了取消 | — |
+| `created` | 已入队 | 记录 `task.id` + 最终 `quality` |
+| `existing` | 已有同一首歌的任务（按平台+mid/mediaMid 判定） | 需要重下才带 `duplicateAction` |
+| `needs_confirmation` | 目标文件已存在，等用户选 | 问用户 overwrite / rename / cancel 后**同参数重调一次** |
+| `cancelled` | 用户选择取消 | 不重试 |
 
-- **降级由 Rust 决定**：所选档位不可用时，按设置自动往下选，任务记录里能看到最终档位。
-- **批量**：逐首调用 `create_download_task`；清理用 `remove_tasks`（可 `deleteFile`）。
-- **直链投递 `stream`**：汽水下载的默认路径（本机解析 → 直链投递），其它平台服务端能自签时不必用。见上文「汽水音乐」与 `references/qishui.md`。
+任务对象关键字段：`id` `platform` `songTitle` `artist` `quality` `filename` `status` `downloaded` `fileSize` `retryCount` `errorMsg` `filePath` `availableQualities`。
 
-## 任务与曲库
+**七种状态**：`waiting` `downloading` `paused` `processing` `completed` `error` `interrupted`。别自己发明状态，也别把 `processing`（收尾写标签）当卡住。
 
-| 工具 | 用途 |
+## 汇报格式
+
+- **下载完成**：成功 N / 失败 M / 跳过 K；逐条给 `歌名 - 歌手 · 音质 · 大小`；失败项带一句原因和下一步。
+- **搜索**：前 5 条 `歌名 - 歌手 · 专辑 · 时长 · 可用档位`，标出你推荐的条目和理由；不确定唯一时**让用户选**。
+- **进度**：`完成 / 下载中 / 等待 / 错误` 计数 + 当前速度；只在任务变化时刷新，不要空转轮询。
+- **降级必须说**：实际音质低于用户要求时明确写"你要 flac，该曲只有 320kmp3，已按降级顺序选后者"。
+
+## 参考索引（按需加载）
+
+| 文档 | 什么时候读 |
 | --- | --- |
-| `list_tasks` | 列出任务（`status`: waiting / downloading / paused / completed / error） |
-| `pause_task` / `resume_task` / `retry_task` | 暂停 / 继续 / 重试（重试会按设置降级） |
-| `remove_task` / `remove_tasks` | 删除任务，可选 `deleteFile` |
-| `list_library` | 列下载目录里的音频（支持关键词过滤、分页） |
-| `rename_library_file` / `delete_library_files` / `write_library_metadata` | 改名 / 删除 / 写标签（标题/歌手/专辑/歌词） |
-| `get_default_download_dir` | 服务端默认下载目录 |
+| `references/architecture.md` | 通道选择拿不准、MCP 连不上、要看代码位置 |
+| `references/mcp-tools.md` | 需要某个工具的准确参数名与返回结构 |
+| `references/http-api.md` | 走 REST、脚本化、或需要 MCP 没有的能力 |
+| `references/search.md` | 搜索参数、分页、平台能力差异 |
+| `references/resource-matching.md` | 多条结果里挑哪一条 |
+| `references/quality-selection.md` | 音质标签、可用档位、降级顺序 |
+| `references/download-workflow.md` | 建任务的完整字段与边界条件 |
+| `references/batch-download.md` | 歌单/专辑/多曲的调度与去重 |
+| `references/task-management.md` | 状态机、动作前置条件、失败后怎么办 |
+| `references/library-management.md` | 曲库查询、去重、改名、写标签 |
+| `references/account-management.md` | 扫码、Cookie、凭据登录、登出 |
+| `references/qishui.md` | 汽水音乐专项（Cookie、签名、直链投递） |
+| `references/signer.md` | 签名协议与 App 端请求契约 |
+| `references/troubleshooting.md` | 任何报错的定位表 |
 
-## 账号
+## 排错起手式
 
-| 工具 | 用途 |
-| --- | --- |
-| `list_accounts` | 四平台登录状态与可用登录方式 |
-| `start_qr_login` / `check_qr_login` | 扫码登录（QQ / 网易云 / 酷狗）；`check_qr_login` 每 2 秒轮询，`done: true` 停止 |
-| `login_with_credentials` | QQ（uin+authst）/ 酷狗（userid+token）凭据登录 |
-| `save_cookie` | 写 Cookie（网易云、汽水） |
-| `logout_account` | 退出登录 / 清除汽水 Cookie |
+报错先看**是哪一层**，别直接改参数重试：
 
-**汽水音乐是特例**：不支持扫码，Cookie 要从本机客户端读，搜索与高音质还需要签名。读 Cookie 时若客户端正在运行，可能读到空值/缺 `sessionid`——脚本会探测进程并提示先完全退出客户端（含托盘），退出再读一次即可，读完再打开不影响使用。完整流程见 `references/qishui.md`。
+1. 服务在不在 → `curl -s "$BASE/healthz"`
+2. 登录态够不够 → `list_accounts`
+3. 这首歌到底有哪些档位 → `parse_link` 看 `qualities`
+4. 失败原因看任务的 `errorMsg`，别猜 → `list_tasks`
 
-## Web UI 与 agent 的分工
+常见现象速查在 `references/troubleshooting.md`；汽水相关先跑 `python scripts/qishui_doctor.py`。
 
-| 能力 | Web UI | agent / MCP |
-| --- | --- | --- |
-| 搜索 | 除汽水外可用 | 全平台（汽水需签名） |
-| 解析分享链接 | ✅ | ✅ `parse_link` |
-| 建任务 / 下载 | ✅ | ✅ |
-| 批量 | ✅ 勾选 | ✅ 循环调用 |
-| 曲库管理 | ✅ | ✅ |
-| 汽水登录 / 签名 | ❌ | ✅ 脚本 + 客户端 |
+## 配套脚本
 
-## 排错
+脚本在仓库 `scripts/`（skill 内不复制，避免版本漂移）：`qishui_login.py` 读客户端 Cookie、`qishui_stream.py` 本机解析直链、`qishui_doctor.py` 六项自检、`qishui-signer-server.mjs` 宿主机签名服务。用法见 `references/qishui.md`。
 
-| 现象 | 原因 | 处理 |
-| --- | --- | --- |
-| 搜索返回空列表 | 平台需登录 / 汽水需签名 / 第 2 页 | 看 `list_accounts`；汽水看 `references/qishui.md` |
-| `parse_link` 报"未能提取" | 链接不是单曲/歌单页，或需要登录态 | 换正式分享链接；或先 `platform` 兜底 |
-| 建任务报「所选音质不可用」 | `desiredQuality` 传了文件名，或该档位真没有 | 传标签（`320kaac`）；先 `parse_link` 看可用 `qualities` |
-| 任务 `error` 且提示音质不可用 | 平台侧无该档位 / 需要会员 | 换低档位或登录会员账号 |
-| 任务一直 `waiting` | 队列并发已满 / 被暂停 | 看设置里的并发数，或 `resume_task` |
-| 读客户端 Cookie 报"客户端正在运行 / 库是空的 / 缺 `sessionid`" | 汽水客户端没退干净，Cookie 库被占或登录态没落盘 | 托盘右键完全退出客户端（任务管理器确认无 SodaMusic）后重读一次，别反复重试 |
-| `qishui_stream.py` 报 HTTP 4xx / 没有 `url_player_info` | Cookie 过期或设备身份不匹配 | 加 `--cookie-from-client` 重试；仍失败删 `qishui-identity.json` 再跑 |
-| 下载中断后重试仍失败 | 链接过期（汽水/QQ 常见） | `retry_task`；汽水直链任务需重新解析 |
-| 页面打不开 | 容器没起/端口不对 | 先按「服务地址」从 MCP 接入地址反推 `$BASE` 再访问；`docker ps` 对照实际端口映射 |
+## 自检
 
-## MCP 配置（agent 侧连不上时）
+改动本 skill 后跑一次，确保文档里的接口名和源码一致：
 
-从项目 `data/mcp.json` 取 `key`，写进 `~/.workbuddy/mcp.json`（地址按你实际的部署填，`<host>:<port>` 就是 `$BASE` 的主机部分）：
-
-```json
-{"mcpServers":{"hotdownloader":{"type":"http","url":"http://<host>:<port>/mcp?key=<key>"}}}
+```bash
+python .workbuddy/skills/hotdownloader/tests/validate_skill.py
 ```
-
-- 本机部署 `<host>:<port>` 用 `127.0.0.1` + `.env` 的 `WEB_PORT`；公网部署换成你的域名/地址（`/mcp` 等于管理员凭据，建议反向代理里只对自己放行）；
-- **这条 `url` 就是唯一权威地址**：HTTP 接口（`/api/*`）、`/healthz`、签名器状态都从它去掉 `/mcp?key=…` 得到，不需要另外记端口；
-- 写完需要在「连接器管理」点**信任**，然后重开会话；
-- 兜底：所有 MCP 工具都有等价 HTTP 接口（`/api/music/*`、`/api/tasks`、`/api/qishui/cookie`…），Basic 认证即可，不必强依赖 MCP。
-
-## 参考
-
-- `references/qishui.md`：汽水音乐专项（能力对照、三步接入、下载默认直链投递、签名器位置、排错）
-- `references/signer.md`：签名与 App 端请求契约（bdms.node、远程签名服务、track_v2 参数）
-- `scripts/qishui_login.py`：从客户端读 Cookie 并落库（`client` / `save` / `status`）
-- `scripts/qishui_stream.py`：本机一次性解析汽水直链（喂给 `stream`，不需要常驻签名服务）
-- `scripts/qishui_doctor.py`：六项环境自检
-- `scripts/qishui-signer-server.mjs`：宿主机签名服务（供容器调用）

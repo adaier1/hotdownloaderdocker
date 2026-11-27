@@ -1,5 +1,7 @@
 # 汽水签名器与 App 端请求契约
 
+给维护者看的协议细节：日常"下载"用不到它（下载走 `qishui_stream.py` 本机直链），只有排查"服务器搜不到汽水 / 拿不到 hi_res"时才需要。
+
 来源：`go-music-dl` + 其依赖 `music-lib/soda`（`signature.go`、`localsigner.go`、`download.go`、`search.go`），以及本项目的实测结果（2026-11-22）。
 
 ## 1. 为什么需要签名
