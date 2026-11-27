@@ -106,7 +106,7 @@ PY
 )
 ```
 
-`?key=` 就是 `/mcp` 的凭据（等同管理员权限），不要外传；`/api/*` 用 Basic/Bearer，凭据在 `.env` 的 `AUTH_USERNAME/AUTH_PASSWORD` 或数据目录 `auth.json`（默认 `admin/admin123`，首次部署后应改）。
+`?key=` 就是 `/mcp` 的凭据（等同管理员权限），不要外传；`/api/*` 用 Basic/Bearer，凭据在 `.env` 的 `AUTH_USERNAME/AUTH_PASSWORD` 或数据目录 `auth.json`（都没配时会回退到内置默认账号，见 README；**首次部署后必须改**）。
 
 ## MCP 连不上
 

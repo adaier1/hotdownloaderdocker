@@ -14,7 +14,7 @@
 | `GET /healthz`、`GET /api/auth/mode` | 无需认证 |
 | `GET /api/login/qr-image/{platform}.png` | 需认证 |
 
-- Basic 凭据：`.env` 的 `AUTH_USERNAME`/`AUTH_PASSWORD`，或数据目录 `auth.json`；都没有时默认 `admin` / `admin123`（首次部署后应改）。
+- Basic 凭据：`.env` 的 `AUTH_USERNAME`/`AUTH_PASSWORD`，或数据目录 `auth.json`；都没配时回退到内置默认账号（见 README），**首次部署后必须改**。
 - Bearer：`HOTDOWNLOADER_TOKEN` 配置时可用 `Authorization: Bearer <token>`。
 - 失败统一 `401 {"error":"访问凭据无效"}`。
 
